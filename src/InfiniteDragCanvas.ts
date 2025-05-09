@@ -6,6 +6,7 @@ import { ShaderPass } from "three/examples/jsm/postprocessing/ShaderPass.js";
 
 interface Card extends THREE.Mesh {
   material: THREE.MeshBasicMaterial; // Each card will have a unique material
+  cardIndex?: number; // Make cardIndex optional in the interface
 }
 
 // Define the Warp Shader directly in the file
@@ -82,6 +83,20 @@ export class InfiniteDragCanvas {
   private initialCameraZ!: number;
   private zoomedOutCameraZ!: number;
 
+  private gridCurrentOffset = new THREE.Vector2(0, 0);
+  private gridTargetOffset = new THREE.Vector2(0, 0);
+  private previousGridCurrentOffset = new THREE.Vector2(0, 0);
+  private smoothingFactor = 0.15; // Adjust for more (0.1) or less (0.3) smoothing
+
+  private velocity = { x: 0, y: 0 };
+  private dampingFactor = 0.85; // Increased from 0.9 for more sustained momentum
+  private minVelocity = 0.1;
+  private dragMultiplier = 1.35; // Increased from 1 for faster dragging
+
+  private raycaster = new THREE.Raycaster();
+  private mouse = new THREE.Vector2();
+  private hoveredCard: Card | null = null;
+
   private images: Card[] = [];
   private gridConfig = {
     rows: 7,
@@ -117,7 +132,7 @@ export class InfiniteDragCanvas {
     this.camera.position.set(0, 0, 300); // Initial Z position
 
     this.initialCameraZ = this.camera.position.z;
-    this.zoomedOutCameraZ = this.initialCameraZ * 1.5; // Zoom out by 50%
+    this.zoomedOutCameraZ = this.initialCameraZ * 1.25; // Reduced from 1.5 to zoom out less
 
     this.renderer = new THREE.WebGLRenderer({ antialias: true });
     this.renderer.setSize(
@@ -143,80 +158,80 @@ export class InfiniteDragCanvas {
     this.composer.addPass(this.warpPass);
   }
 
-  private createCardGrid(): void {
-    const { rows, cols, imageSize, spacing } = this.gridConfig;
-    this.gridConfig.gridWidth = cols * (imageSize + spacing) - spacing;
-    this.gridConfig.gridHeight = rows * (imageSize + spacing) - spacing;
+  private createCardTexture(
+    cardIndex: number,
+    backgroundColor: string | null
+  ): THREE.CanvasTexture {
+    const baseTextCanvasSize = 256;
+    const dpr = window.devicePixelRatio || 1;
+    const actualCanvasSize = baseTextCanvasSize * dpr;
 
-    const baseTextCanvasSize = 256; // Increased base size for the texture canvas
+    const canvas = document.createElement("canvas");
+    canvas.width = actualCanvasSize;
+    canvas.height = actualCanvasSize;
+    const ctx = canvas.getContext("2d");
+
+    if (!ctx) {
+      console.error("Failed to get 2D context for card texture generation.");
+      // Return a fallback texture or throw error
+      return new THREE.CanvasTexture(document.createElement("canvas"));
+    }
+
+    ctx.scale(dpr, dpr);
+
+    if (backgroundColor) {
+      ctx.fillStyle = backgroundColor;
+      ctx.fillRect(0, 0, baseTextCanvasSize, baseTextCanvasSize);
+    } else {
+      ctx.clearRect(0, 0, baseTextCanvasSize, baseTextCanvasSize); // Transparent background
+    }
+
+    ctx.strokeStyle = "#555555";
+    ctx.lineWidth = 1;
+    ctx.strokeRect(0.5, 0.5, baseTextCanvasSize - 1, baseTextCanvasSize - 1);
+
+    ctx.fillStyle = "#cccccc";
+    const fontSize = baseTextCanvasSize / 5;
+    ctx.font = `bold ${fontSize}px Arial`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(
+      cardIndex.toString(),
+      baseTextCanvasSize / 2,
+      baseTextCanvasSize / 2
+    );
+
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.needsUpdate = true;
+    return texture;
+  }
+
+  private createCardGrid(): void {
+    const { rows, cols, imageSize } = this.gridConfig;
+    this.gridConfig.gridWidth = cols * imageSize;
+    this.gridConfig.gridHeight = rows * imageSize;
 
     for (let row = 0; row < rows; row++) {
       for (let col = 0; col < cols; col++) {
-        const cardIndex = row * cols + col;
+        const cardIndexValue = row * cols + col;
 
-        // Create an offscreen canvas for the texture
-        // const dpr = window.devicePixelRatio || 1; // Removed DPR scaling for canvas dimensions
-        const actualCanvasSize = baseTextCanvasSize; // Canvas dimensions will be baseTextCanvasSize
-
-        const canvas = document.createElement("canvas");
-        canvas.width = actualCanvasSize;
-        canvas.height = actualCanvasSize;
-
-        const ctx = canvas.getContext("2d");
-
-        if (!ctx) {
-          console.error("Failed to get 2D context for card texture");
-          continue;
-        }
-
-        // Scale the context to draw with logical pixel sizes
-        // ctx.scale(dpr, dpr); // Removed DPR scaling for drawing context
-
-        // Transparent background for the card texture area
-        ctx.clearRect(0, 0, baseTextCanvasSize, baseTextCanvasSize);
-
-        // Draw 1px border (logical pixels)
-        ctx.strokeStyle = "#555555";
-        ctx.lineWidth = 1; // This will be 1 logical pixel, scaled by DPR to be crisp
-        ctx.strokeRect(
-          0.5,
-          0.5,
-          baseTextCanvasSize - 1,
-          baseTextCanvasSize - 1
-        );
-
-        // Add card index number (light color)
-        ctx.fillStyle = "#cccccc";
-        // Font size is in logical pixels, will be scaled by DPR
-        const fontSize = baseTextCanvasSize / 5; // Adjusted font size relative to canvas
-        ctx.font = `bold ${fontSize}px Arial`;
-        ctx.textAlign = "center";
-        ctx.textBaseline = "middle";
-        ctx.fillText(
-          cardIndex.toString(),
-          baseTextCanvasSize / 2,
-          baseTextCanvasSize / 2
-        );
-
-        const texture = new THREE.CanvasTexture(canvas);
-        texture.needsUpdate = true; // Ensure texture updates
+        // Pass cardIndexValue which is a number
+        const initialTexture = this.createCardTexture(cardIndexValue, null);
 
         const material = new THREE.MeshBasicMaterial({
-          map: texture,
+          map: initialTexture,
           side: THREE.DoubleSide,
+          transparent: true,
         });
         const geometry = new THREE.PlaneGeometry(imageSize, imageSize);
+        const imageMesh = new THREE.Mesh(geometry, material) as Card; // Cast is now more acceptable
 
-        const imageMesh = new THREE.Mesh(geometry, material) as Card;
+        imageMesh.cardIndex = cardIndexValue; // Assign the definite number
 
         const x =
-          col * (imageSize + spacing) -
-          this.gridConfig.gridWidth / 2 +
-          imageSize / 2;
+          col * imageSize - this.gridConfig.gridWidth / 2 + imageSize / 2;
         const y =
-          this.gridConfig.gridHeight / 2 -
-          row * (imageSize + spacing) -
-          imageSize / 2;
+          this.gridConfig.gridHeight / 2 - row * imageSize - imageSize / 2;
 
         imageMesh.position.set(x, y, 0);
         this.scene.add(imageMesh);
@@ -239,33 +254,41 @@ export class InfiniteDragCanvas {
       "pointerleave",
       this.onPointerUp.bind(this)
     ); // Stop dragging if pointer leaves container
+    // Add new listener for hover effects if not dragging (also on pointermove)
+    this.container.addEventListener("pointermove", this.handleHover.bind(this));
     window.addEventListener("resize", this.onWindowResize.bind(this));
   }
 
   private onPointerDown(event: PointerEvent): void {
     this.isDragging = true;
+    this.velocity = { x: 0, y: 0 };
     this.previousMouse.x = event.clientX;
     this.previousMouse.y = event.clientY;
     this.container.style.cursor = "grabbing";
 
+    // Snap target to current to avoid jump if a previous momentum was ongoing
+    this.gridTargetOffset.copy(this.gridCurrentOffset);
+
     // Zoom out camera
     gsap.to(this.camera.position, {
       z: this.zoomedOutCameraZ,
-      duration: 0.5, // Adjust duration as needed
-      ease: "power2.out", // Adjust ease as needed
+      duration: 0.15, // Reduced from 0.5 for faster zoom
+      ease: "power2.out",
     });
   }
 
   private onPointerMove(event: PointerEvent): void {
     if (!this.isDragging) return;
 
-    const deltaX = event.clientX - this.previousMouse.x;
-    const deltaY = event.clientY - this.previousMouse.y;
+    const rawDeltaX = event.clientX - this.previousMouse.x;
+    const rawDeltaY = event.clientY - this.previousMouse.y;
 
-    this.images.forEach((image) => {
-      image.position.x += deltaX;
-      image.position.y -= deltaY; // Screen Y is inverted relative to Three.js Y
-    });
+    // Update target offset based on mouse movement and multiplier
+    this.gridTargetOffset.x += rawDeltaX * this.dragMultiplier;
+    this.gridTargetOffset.y -= rawDeltaY * this.dragMultiplier; // Y-axis inverted for world space
+
+    // Store raw velocity for momentum
+    this.velocity = { x: rawDeltaX, y: rawDeltaY };
 
     this.previousMouse.x = event.clientX;
     this.previousMouse.y = event.clientY;
@@ -276,11 +299,14 @@ export class InfiniteDragCanvas {
     this.isDragging = false;
     this.container.style.cursor = "grab";
 
+    // Keep the last velocity for momentum, but don't apply it here directly.
+    // The animate loop will handle the momentum from this.velocity.
+
     // Zoom in camera to initial position
     gsap.to(this.camera.position, {
       z: this.initialCameraZ,
-      duration: 0.5, // Adjust duration as needed
-      ease: "power2.out", // Adjust ease as needed
+      duration: 0.25, // Reduced from 0.5 for faster zoom
+      ease: "power2.out",
       onUpdate: () => {
         // Ensure wrapping logic keeps up during zoom animation
         this.wrapCards();
@@ -327,14 +353,45 @@ export class InfiniteDragCanvas {
   private animate(): void {
     requestAnimationFrame(this.animate.bind(this));
 
-    if (this.isDragging) {
-      this.wrapCards();
-    } else {
-      this.wrapCards();
+    if (
+      !this.isDragging &&
+      (Math.abs(this.velocity.x) > this.minVelocity ||
+        Math.abs(this.velocity.y) > this.minVelocity)
+    ) {
+      // Apply momentum by continuing to move the target offset
+      this.gridTargetOffset.x += this.velocity.x * this.dragMultiplier; // Momentum uses multiplier too for consistency
+      this.gridTargetOffset.y -= this.velocity.y * this.dragMultiplier;
+
+      this.velocity.x *= this.dampingFactor;
+      this.velocity.y *= this.dampingFactor;
+
+      if (Math.abs(this.velocity.x) <= this.minVelocity) this.velocity.x = 0;
+      if (Math.abs(this.velocity.y) <= this.minVelocity) this.velocity.y = 0;
     }
 
-    // this.renderer.render(this.scene, this.camera); // Old rendering path
-    this.composer.render(); // New rendering path with post-processing
+    // Lerp current offset towards target offset
+    this.gridCurrentOffset.lerp(this.gridTargetOffset, this.smoothingFactor);
+
+    // Calculate the actual delta to move cards this frame
+    const deltaMoveX =
+      this.gridCurrentOffset.x - this.previousGridCurrentOffset.x;
+    const deltaMoveY =
+      this.gridCurrentOffset.y - this.previousGridCurrentOffset.y;
+
+    // Apply this delta to all images
+    if (Math.abs(deltaMoveX) > 0.001 || Math.abs(deltaMoveY) > 0.001) {
+      // Avoid tiny movements
+      this.images.forEach((image) => {
+        image.position.x += deltaMoveX;
+        image.position.y += deltaMoveY;
+      });
+    }
+
+    // Update previous offset for next frame
+    this.previousGridCurrentOffset.copy(this.gridCurrentOffset);
+
+    this.wrapCards();
+    this.composer.render();
   }
 
   private onWindowResize(): void {
@@ -349,6 +406,89 @@ export class InfiniteDragCanvas {
     if (this.warpPass) {
       // Update shader aspect ratio
       this.warpPass.uniforms["aspectRatio"].value = newWidth / newHeight;
+    }
+  }
+
+  private handleHover(event: PointerEvent): void {
+    if (this.isDragging) {
+      if (this.hoveredCard && this.hoveredCard.cardIndex !== undefined) {
+        // Check cardIndex exists
+        const originalTexture = this.createCardTexture(
+          this.hoveredCard.cardIndex!,
+          null
+        ); // Use non-null assertion
+        if (this.hoveredCard.material.map) {
+          (this.hoveredCard.material.map as THREE.CanvasTexture).dispose();
+        }
+        this.hoveredCard.material.map = originalTexture;
+        this.hoveredCard.material.needsUpdate = true;
+        this.hoveredCard = null;
+      }
+      return;
+    }
+
+    this.mouse.x = (event.clientX / this.container.clientWidth) * 2 - 1;
+    this.mouse.y = -(event.clientY / this.container.clientHeight) * 2 + 1;
+
+    this.raycaster.setFromCamera(this.mouse, this.camera);
+    const intersects = this.raycaster.intersectObjects(this.images, false);
+
+    if (intersects.length > 0) {
+      const firstIntersect = intersects[0].object;
+      if ((firstIntersect as Card).cardIndex !== undefined) {
+        const newlyHoveredObject = firstIntersect as Card;
+        if (this.hoveredCard !== newlyHoveredObject) {
+          if (this.hoveredCard && this.hoveredCard.cardIndex !== undefined) {
+            const originalTexture = this.createCardTexture(
+              this.hoveredCard.cardIndex!,
+              null
+            );
+            if (this.hoveredCard.material.map) {
+              (this.hoveredCard.material.map as THREE.CanvasTexture).dispose();
+            }
+            this.hoveredCard.material.map = originalTexture;
+            this.hoveredCard.material.needsUpdate = true;
+          }
+
+          this.hoveredCard = newlyHoveredObject;
+          // newlyHoveredObject.cardIndex will be defined here due to the outer check
+          const hoveredTexture = this.createCardTexture(
+            this.hoveredCard.cardIndex!,
+            "#111"
+          );
+          if (this.hoveredCard.material.map) {
+            (this.hoveredCard.material.map as THREE.CanvasTexture).dispose();
+          }
+          this.hoveredCard.material.map = hoveredTexture;
+          this.hoveredCard.material.needsUpdate = true;
+        }
+      } else {
+        if (this.hoveredCard && this.hoveredCard.cardIndex !== undefined) {
+          const originalTexture = this.createCardTexture(
+            this.hoveredCard.cardIndex!,
+            null
+          );
+          if (this.hoveredCard.material.map) {
+            (this.hoveredCard.material.map as THREE.CanvasTexture).dispose();
+          }
+          this.hoveredCard.material.map = originalTexture;
+          this.hoveredCard.material.needsUpdate = true;
+          this.hoveredCard = null;
+        }
+      }
+    } else {
+      if (this.hoveredCard && this.hoveredCard.cardIndex !== undefined) {
+        const originalTexture = this.createCardTexture(
+          this.hoveredCard.cardIndex!,
+          null
+        );
+        if (this.hoveredCard.material.map) {
+          (this.hoveredCard.material.map as THREE.CanvasTexture).dispose();
+        }
+        this.hoveredCard.material.map = originalTexture;
+        this.hoveredCard.material.needsUpdate = true;
+        this.hoveredCard = null;
+      }
     }
   }
 
