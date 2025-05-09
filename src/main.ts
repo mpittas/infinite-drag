@@ -1,3 +1,7 @@
+import { InfiniteDragCanvas } from "./InfiniteDragCanvas";
+
+// Comment out or remove the existing Three.js scene setup
+/*
 import * as THREE from "three";
 
 // Scene
@@ -72,3 +76,22 @@ const tick = () => {
 };
 
 tick(); // Start the animation loop
+*/
+
+// Ensure the DOM is loaded before creating the canvas
+document.addEventListener("DOMContentLoaded", () => {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const canvasApp = new InfiniteDragCanvas("canvas-container");
+    // To keep the canvasApp instance if you need to access it later for dispose, etc.
+    // For example, you might want to attach it to the window object for debugging:
+    // (window as any).canvasApp = canvasApp;
+  } catch (error) {
+    console.error("Failed to initialize InfiniteDragCanvas:", error);
+    const container = document.getElementById("canvas-container");
+    if (container) {
+      container.innerHTML =
+        "<p>Error initializing 3D canvas. See console for details.</p>";
+    }
+  }
+});

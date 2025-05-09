@@ -7,22 +7,20 @@
     <title>Vite + TS</title>
     <style>
       html,
-      body {
+      body,
+      #canvas-container {
+        /* Apply to the container */
         width: 100%;
         height: 100%;
         margin: 0;
         padding: 0;
         overflow: hidden; /* Prevents scrollbars */
       }
-      canvas.webgl {
-        display: block;
-        width: 100%;
-        height: 100%;
-      }
+      /* canvas.webgl can be removed or kept if other canvases might use it */
     </style>
   </head>
   <body>
-    <canvas class="webgl"></canvas>
+    <div id="canvas-container"></div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>
