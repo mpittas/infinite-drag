@@ -18,8 +18,8 @@ export class InfiniteDragCanvas {
   private gridConfig = {
     rows: 5,
     cols: 8,
-    imageSize: 200, // Adjust as needed
-    spacing: 20, // Adjust as needed
+    imageSize: 200,
+    spacing: 0, // No space between items
     gridWidth: 0,
     gridHeight: 0,
   };
@@ -42,7 +42,7 @@ export class InfiniteDragCanvas {
 
   private initScene(): void {
     this.scene = new THREE.Scene();
-    this.scene.background = new THREE.Color(0xf0f0f0); // Light gray background
+    this.scene.background = new THREE.Color(0x1a1a1a); // Dark gray background
 
     const aspect = this.container.clientWidth / this.container.clientHeight;
     this.camera = new THREE.PerspectiveCamera(75, aspect, 0.1, 1000);
@@ -81,14 +81,20 @@ export class InfiniteDragCanvas {
           continue; // Skip this card if context fails
         }
 
-        // Generate a unique color for the card background
-        const hue = (cardIndex * (360 / (rows * cols))) % 360;
-        ctx.fillStyle = `hsl(${hue}, 70%, 60%)`;
-        ctx.fillRect(0, 0, textCanvasSize, textCanvasSize);
+        // Transparent background for the card texture area
+        ctx.clearRect(0, 0, textCanvasSize, textCanvasSize);
 
-        // Add card index number
-        ctx.fillStyle = "white";
-        ctx.font = "bold 48px Arial"; // Adjust font size as needed
+        // Draw 1px border (light gray)
+        ctx.strokeStyle = "#555555"; // Darker gray for border on dark theme
+        ctx.lineWidth = 1; // For a 1px border, this should be 1, but ensure scaling doesn't make it disappear
+        // To ensure crisp 1px line, consider drawing at half-pixel coordinates if not scaling texture much
+        // or ensure textCanvasSize maps well to imageSize.
+        // For simplicity, let's try direct strokeRect.
+        ctx.strokeRect(0.5, 0.5, textCanvasSize - 1, textCanvasSize - 1); // Offset by 0.5 for sharper lines
+
+        // Add card index number (light color)
+        ctx.fillStyle = "#cccccc"; // Light gray for numbers
+        ctx.font = "bold 48px Arial";
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";
         ctx.fillText(
