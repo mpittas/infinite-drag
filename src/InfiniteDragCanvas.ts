@@ -148,43 +148,54 @@ export class InfiniteDragCanvas {
     this.gridConfig.gridWidth = cols * (imageSize + spacing) - spacing;
     this.gridConfig.gridHeight = rows * (imageSize + spacing) - spacing;
 
-    const textCanvasSize = 128; // Power of 2 for texture size is good practice
+    const baseTextCanvasSize = 256; // Increased base size for the texture canvas
 
     for (let row = 0; row < rows; row++) {
       for (let col = 0; col < cols; col++) {
         const cardIndex = row * cols + col;
 
-        // Create an offscreen canvas for the texture
+        // Create an offscreen canvas for the texture, accounting for DPR
+        const dpr = window.devicePixelRatio || 1;
+        const actualCanvasSize = baseTextCanvasSize * dpr;
+
         const canvas = document.createElement("canvas");
-        canvas.width = textCanvasSize;
-        canvas.height = textCanvasSize;
+        canvas.width = actualCanvasSize;
+        canvas.height = actualCanvasSize;
+
         const ctx = canvas.getContext("2d");
 
         if (!ctx) {
           console.error("Failed to get 2D context for card texture");
-          continue; // Skip this card if context fails
+          continue;
         }
 
-        // Transparent background for the card texture area
-        ctx.clearRect(0, 0, textCanvasSize, textCanvasSize);
+        // Scale the context to draw with logical pixel sizes
+        ctx.scale(dpr, dpr);
 
-        // Draw 1px border (light gray)
-        ctx.strokeStyle = "#555555"; // Darker gray for border on dark theme
-        ctx.lineWidth = 1; // For a 1px border, this should be 1, but ensure scaling doesn't make it disappear
-        // To ensure crisp 1px line, consider drawing at half-pixel coordinates if not scaling texture much
-        // or ensure textCanvasSize maps well to imageSize.
-        // For simplicity, let's try direct strokeRect.
-        ctx.strokeRect(0.5, 0.5, textCanvasSize - 1, textCanvasSize - 1); // Offset by 0.5 for sharper lines
+        // Transparent background for the card texture area
+        ctx.clearRect(0, 0, baseTextCanvasSize, baseTextCanvasSize);
+
+        // Draw 1px border (logical pixels)
+        ctx.strokeStyle = "#555555";
+        ctx.lineWidth = 1; // This will be 1 logical pixel, scaled by DPR to be crisp
+        ctx.strokeRect(
+          0.5,
+          0.5,
+          baseTextCanvasSize - 1,
+          baseTextCanvasSize - 1
+        );
 
         // Add card index number (light color)
-        ctx.fillStyle = "#cccccc"; // Light gray for numbers
-        ctx.font = "bold 48px Arial";
+        ctx.fillStyle = "#cccccc";
+        // Font size is in logical pixels, will be scaled by DPR
+        const fontSize = baseTextCanvasSize / 5; // Adjusted font size relative to canvas
+        ctx.font = `bold ${fontSize}px Arial`;
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";
         ctx.fillText(
           cardIndex.toString(),
-          textCanvasSize / 2,
-          textCanvasSize / 2
+          baseTextCanvasSize / 2,
+          baseTextCanvasSize / 2
         );
 
         const texture = new THREE.CanvasTexture(canvas);
