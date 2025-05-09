@@ -154,9 +154,9 @@ export class InfiniteDragCanvas {
       for (let col = 0; col < cols; col++) {
         const cardIndex = row * cols + col;
 
-        // Create an offscreen canvas for the texture, accounting for DPR
-        const dpr = window.devicePixelRatio || 1;
-        const actualCanvasSize = baseTextCanvasSize * dpr;
+        // Create an offscreen canvas for the texture
+        // const dpr = window.devicePixelRatio || 1; // Removed DPR scaling for canvas dimensions
+        const actualCanvasSize = baseTextCanvasSize; // Canvas dimensions will be baseTextCanvasSize
 
         const canvas = document.createElement("canvas");
         canvas.width = actualCanvasSize;
@@ -170,7 +170,7 @@ export class InfiniteDragCanvas {
         }
 
         // Scale the context to draw with logical pixel sizes
-        ctx.scale(dpr, dpr);
+        // ctx.scale(dpr, dpr); // Removed DPR scaling for drawing context
 
         // Transparent background for the card texture area
         ctx.clearRect(0, 0, baseTextCanvasSize, baseTextCanvasSize);
