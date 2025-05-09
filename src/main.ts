@@ -81,11 +81,7 @@ tick(); // Start the animation loop
 // Ensure the DOM is loaded before creating the canvas
 document.addEventListener("DOMContentLoaded", () => {
   try {
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    const canvasApp = new InfiniteDragCanvas("canvas-container");
-    // To keep the canvasApp instance if you need to access it later for dispose, etc.
-    // For example, you might want to attach it to the window object for debugging:
-    // (window as any).canvasApp = canvasApp;
+    new InfiniteDragCanvas("canvas-container"); // Instance created, constructor runs, but not assigned to a variable
   } catch (error) {
     console.error("Failed to initialize InfiniteDragCanvas:", error);
     const container = document.getElementById("canvas-container");
