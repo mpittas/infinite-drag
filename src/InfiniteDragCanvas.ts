@@ -113,7 +113,7 @@ export class InfiniteDragCanvas {
     this.scene.background = new THREE.Color(0x1a1a1a); // Dark gray background
 
     const aspect = this.container.clientWidth / this.container.clientHeight;
-    this.camera = new THREE.PerspectiveCamera(75, aspect, 0.1, 1000);
+    this.camera = new THREE.PerspectiveCamera(90, aspect, 0.1, 1000);
     this.camera.position.set(0, 0, 300); // Initial Z position
 
     this.initialCameraZ = this.camera.position.z;
