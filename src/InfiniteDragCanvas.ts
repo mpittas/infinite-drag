@@ -16,8 +16,8 @@ export class InfiniteDragCanvas {
 
   private images: Card[] = [];
   private gridConfig = {
-    rows: 5,
-    cols: 8,
+    rows: 7,
+    cols: 13,
     imageSize: 200,
     spacing: 0, // No space between items
     gridWidth: 0,
@@ -186,32 +186,44 @@ export class InfiniteDragCanvas {
       z: this.initialCameraZ,
       duration: 0.5, // Adjust duration as needed
       ease: "power2.out", // Adjust ease as needed
+      onUpdate: () => {
+        // Ensure wrapping logic keeps up during zoom animation
+        this.wrapCards();
+      },
     });
   }
 
   private wrapCards(): void {
-    const { imageSize, spacing, gridWidth, gridHeight } = this.gridConfig;
-    const totalGridWidth = gridWidth + spacing; // Effective width for wrapping one full grid cycle
-    const totalGridHeight = gridHeight + spacing; // Effective height
+    const { imageSize, rows, cols } = this.gridConfig;
+    // Since spacing is 0, totalGridWidth is cols * imageSize
+    const totalGridWidth = cols * imageSize;
+    const totalGridHeight = rows * imageSize;
 
-    const halfTotalGridWidth = totalGridWidth / 2;
-    const halfTotalGridHeight = totalGridHeight / 2;
+    // Calculate visible frustum height and width at z=0 plane
+    // This gives us the boundaries of what the camera can see at the cards' depth
+    const vFOV = THREE.MathUtils.degToRad(this.camera.fov);
+    const visibleHeightAtZ = 2 * Math.tan(vFOV / 2) * this.camera.position.z;
+    const visibleWidthAtZ = visibleHeightAtZ * this.camera.aspect;
 
-    // More precise wrapping boundaries relative to camera view and card center
-    // These boundaries define when a card is considered "fully out" of the central grid area.
-    const boundaryX = this.gridConfig.gridWidth / 2 + imageSize / 2;
-    const boundaryY = this.gridConfig.gridHeight / 2 + imageSize / 2;
+    const halfVisibleWidth = visibleWidthAtZ / 2;
+    const halfVisibleHeight = visibleHeightAtZ / 2;
 
     this.images.forEach((image) => {
-      if (image.position.x > boundaryX) {
+      // Check if the card's left edge is beyond the right screen edge
+      if (image.position.x - imageSize / 2 > halfVisibleWidth) {
         image.position.x -= totalGridWidth;
-      } else if (image.position.x < -boundaryX) {
+      }
+      // Check if the card's right edge is beyond the left screen edge
+      else if (image.position.x + imageSize / 2 < -halfVisibleWidth) {
         image.position.x += totalGridWidth;
       }
 
-      if (image.position.y > boundaryY) {
+      // Check if the card's bottom edge is beyond the top screen edge
+      if (image.position.y - imageSize / 2 > halfVisibleHeight) {
         image.position.y -= totalGridHeight;
-      } else if (image.position.y < -boundaryY) {
+      }
+      // Check if the card's top edge is beyond the bottom screen edge
+      else if (image.position.y + imageSize / 2 < -halfVisibleHeight) {
         image.position.y += totalGridHeight;
       }
     });
