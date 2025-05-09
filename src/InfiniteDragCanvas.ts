@@ -1,15 +1,83 @@
 import * as THREE from "three";
 import { gsap } from "gsap"; // Import GSAP
+import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer.js";
+import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
+import { ShaderPass } from "three/examples/jsm/postprocessing/ShaderPass.js";
 
 interface Card extends THREE.Mesh {
   material: THREE.MeshBasicMaterial; // Each card will have a unique material
 }
+
+// Define the Warp Shader directly in the file
+const WarpShader = {
+  uniforms: {
+    tDiffuse: { value: null as THREE.Texture | null },
+    strength: { value: -0.05 }, // Reduced from -0.15 for smaller warping effect
+    aspectRatio: { value: 1.0 },
+  },
+  vertexShader: /* glsl */ `
+    varying vec2 vUv;
+    void main() {
+      vUv = uv;
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+    }`,
+  fragmentShader: /* glsl */ `
+    uniform sampler2D tDiffuse;
+    uniform float strength; // k1 in lens distortion
+    uniform float aspectRatio;
+    varying vec2 vUv;
+
+    void main() {
+      vec2 p = vUv * 2.0 - 1.0; // Normalize to -1.0 to 1.0 screen space coordinates
+
+      // Adjust coordinates to make the space isotropic (circular) before distortion
+      vec2 pAspectCorrected = p;
+      if (aspectRatio > 1.0) { // Landscape: scale down y
+          pAspectCorrected.y *= aspectRatio;
+      } else { // Portrait or Square: scale down x
+          pAspectCorrected.x /= aspectRatio;
+      }
+
+      // Calculate squared radial distance in this isotropic space
+      float r2 = dot(pAspectCorrected, pAspectCorrected);
+      
+      // Apply radial distortion: p_d = p * (1 + strength * r^2)
+      // The distortion is applied to the coordinates in the isotropic space
+      vec2 pDistortedIsotropic = pAspectCorrected * (1.0 + strength * r2);
+
+      // Convert distorted coordinates back to original screen aspect ratio
+      vec2 pDistortedScreen = pDistortedIsotropic;
+      if (aspectRatio > 1.0) { // Landscape: unscale y
+          pDistortedScreen.y /= aspectRatio;
+      } else { // Portrait or Square: unscale x
+          pDistortedScreen.x *= aspectRatio;
+      }
+
+      // Convert back to 0.0 to 1.0 UV range for texture sampling
+      vec2 distortedUv = pDistortedScreen * 0.5 + 0.5;
+
+      // Clamp or discard if UVs are out of bounds
+      if (distortedUv.x < 0.0 || distortedUv.x > 1.0 || distortedUv.y < 0.0 || distortedUv.y > 1.0) {
+         // Option 1: Discard (transparent) - useful if background is visible behind composer
+         // gl_FragColor = vec4(0.0, 0.0, 0.0, 0.0);
+         // Option 2: Clamp to edge (effectively done by texture2D default, but can be explicit)
+         // distortedUv = clamp(distortedUv, vec2(0.0), vec2(1.0));
+         // gl_FragColor = texture2D(tDiffuse, distortedUv);
+         // Option 3: Show a debug color or the scene background color if desired
+         gl_FragColor = vec4(0.0,0.0,0.0,1.0); // Render black for out-of-bounds (matches dark theme)
+      } else {
+         gl_FragColor = texture2D(tDiffuse, distortedUv);
+      }
+    }`,
+};
 
 export class InfiniteDragCanvas {
   private scene!: THREE.Scene;
   private camera!: THREE.PerspectiveCamera;
   private renderer!: THREE.WebGLRenderer;
   private container: HTMLElement;
+  private composer!: EffectComposer;
+  private warpPass!: ShaderPass;
 
   private initialCameraZ!: number;
   private zoomedOutCameraZ!: number;
@@ -57,6 +125,22 @@ export class InfiniteDragCanvas {
       this.container.clientHeight
     );
     this.container.appendChild(this.renderer.domElement);
+
+    // Initialize Post-Processing
+    this.initPostProcessing();
+  }
+
+  private initPostProcessing(): void {
+    this.composer = new EffectComposer(this.renderer);
+
+    const renderPass = new RenderPass(this.scene, this.camera);
+    this.composer.addPass(renderPass);
+
+    this.warpPass = new ShaderPass(WarpShader);
+    this.warpPass.uniforms["aspectRatio"].value =
+      this.container.clientWidth / this.container.clientHeight;
+    this.warpPass.renderToScreen = true; // Ensure this is the last pass that renders to screen
+    this.composer.addPass(this.warpPass);
   }
 
   private createCardGrid(): void {
@@ -233,17 +317,13 @@ export class InfiniteDragCanvas {
     requestAnimationFrame(this.animate.bind(this));
 
     if (this.isDragging) {
-      // Only wrap when actively dragging or if momentum is implemented
       this.wrapCards();
     } else {
-      // If not dragging, still good to call wrap in case of residual movement or
-      // if you implement momentum and want cards to settle correctly.
-      // For a simple drag-and-stop, this might not be strictly needed if onPointerUp resets positions.
-      // However, continuous wrapping ensures consistency.
       this.wrapCards();
     }
 
-    this.renderer.render(this.scene, this.camera);
+    // this.renderer.render(this.scene, this.camera); // Old rendering path
+    this.composer.render(); // New rendering path with post-processing
   }
 
   private onWindowResize(): void {
@@ -253,6 +333,12 @@ export class InfiniteDragCanvas {
     this.camera.aspect = newWidth / newHeight;
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(newWidth, newHeight);
+    this.composer.setSize(newWidth, newHeight); // Resize composer
+
+    if (this.warpPass) {
+      // Update shader aspect ratio
+      this.warpPass.uniforms["aspectRatio"].value = newWidth / newHeight;
+    }
   }
 
   // Public method to clean up resources if the canvas is destroyed
@@ -309,5 +395,9 @@ export class InfiniteDragCanvas {
         );
       }
     }
+    // Note: EffectComposer and ShaderPass don't have explicit dispose methods in the same way as materials/geometries.
+    // The main thing is to stop rendering them and allow GC to collect if they are no longer referenced.
+    // If ShaderPass creates internal textures or framebuffers not managed by EffectComposer, they might need disposal.
+    // However, for standard ShaderPass usage, this is generally handled.
   }
 }
