@@ -10,6 +10,7 @@ import type {
   UniqueCardDataItem,
 } from "./types";
 import { WarpShader } from "./WarpShader"; // Import WarpShader
+import { CardRenderer } from "./CardRenderer"; // Import the new CardRenderer
 
 // Card interface removed (now in ./types)
 // WarpShader object removed (now in ./WarpShader)
@@ -73,7 +74,7 @@ export class InfiniteDragCanvas {
 
     const aspect = this.container.clientWidth / this.container.clientHeight;
     this.camera = new THREE.PerspectiveCamera(70, aspect, 0.1, 1000);
-    this.camera.position.set(0, 0, 500); // Initial Z position
+    this.camera.position.set(0, 0, 400); // Reduced Z to show fewer columns
 
     this.initialCameraZ = this.camera.position.z;
     this.zoomedOutCameraZ = this.initialCameraZ * 1.25; // Reduced from 1.5 to zoom out less
@@ -102,54 +103,6 @@ export class InfiniteDragCanvas {
       this.container.clientWidth / this.container.clientHeight;
     this.warpPass.renderToScreen = true; // Ensure this is the last pass that renders to screen
     this.composer.addPass(this.warpPass);
-  }
-
-  private createCardTexture(
-    cardIndex: number,
-    backgroundColor: string | null
-  ): THREE.CanvasTexture {
-    const baseTextCanvasSize = 200;
-    const dpr = window.devicePixelRatio || 1;
-    const actualCanvasSize = baseTextCanvasSize * dpr;
-
-    const canvas = document.createElement("canvas");
-    canvas.width = actualCanvasSize;
-    canvas.height = actualCanvasSize;
-    const ctx = canvas.getContext("2d");
-
-    if (!ctx) {
-      console.error("Failed to get 2D context for card texture generation.");
-      // Return a fallback texture or throw error
-      return new THREE.CanvasTexture(document.createElement("canvas"));
-    }
-
-    ctx.scale(dpr, dpr);
-
-    if (backgroundColor) {
-      ctx.fillStyle = backgroundColor;
-      ctx.fillRect(0, 0, baseTextCanvasSize, baseTextCanvasSize);
-    } else {
-      ctx.clearRect(0, 0, baseTextCanvasSize, baseTextCanvasSize); // Transparent background
-    }
-
-    ctx.strokeStyle = "#555555";
-    ctx.lineWidth = 0.1;
-    ctx.strokeRect(0.5, 0.5, baseTextCanvasSize - 1, baseTextCanvasSize - 1);
-
-    ctx.fillStyle = "#cccccc";
-    const fontSize = baseTextCanvasSize / 5;
-    ctx.font = `bold ${fontSize}px Arial`;
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    ctx.fillText(
-      cardIndex.toString(),
-      baseTextCanvasSize / 2,
-      baseTextCanvasSize / 2
-    );
-
-    const texture = new THREE.CanvasTexture(canvas);
-    texture.needsUpdate = true;
-    return texture;
   }
 
   private createCardGrid(): void {
@@ -190,7 +143,8 @@ export class InfiniteDragCanvas {
         tileGroup.position.set(tileCol * tileWidth, -tileRow * tileHeight, 0); // Note: -tileRow for Y up
 
         uniqueCardData.forEach((data) => {
-          const texture = this.createCardTexture(data.cardIndex, null);
+          // Use CardRenderer to create the texture
+          const texture = CardRenderer.createCardTexture(data.cardIndex, null);
           const material = new THREE.MeshBasicMaterial({
             map: texture,
             side: THREE.DoubleSide,
@@ -463,7 +417,11 @@ export class InfiniteDragCanvas {
     backgroundColor: string | null
   ): void {
     if (card && card.cardIndex !== undefined) {
-      const texture = this.createCardTexture(card.cardIndex, backgroundColor);
+      // Use CardRenderer to create the texture
+      const texture = CardRenderer.createCardTexture(
+        card.cardIndex,
+        backgroundColor
+      );
       if (card.material.map) {
         (card.material.map as THREE.CanvasTexture).dispose();
       }
