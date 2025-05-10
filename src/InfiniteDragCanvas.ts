@@ -83,7 +83,8 @@ export class InfiniteDragCanvas {
   private dampingFactor = 0.85; // Default damping, kept for reference
   private currentDampingFactor = 0.85; // Dynamically adjusted damping for momentum
   private minVelocity = 0.1;
-  private dragMultiplier = 1.5; // User set, was 2.0, then 1.35
+  private dragMultiplier = 0.5; // User set, was 2.0, then 1.35
+  private momentumDistanceMultiplier = 4; // Amplifies grid movement during momentum phase.
 
   private raycaster = new THREE.Raycaster();
   private mouse = new THREE.Vector2();
@@ -326,10 +327,10 @@ export class InfiniteDragCanvas {
     const mediumSpeedThreshold = 20.0; // Upper limit for a "medium" release, above is "fast"
 
     // Damping values (higher means less damping/more coast) - Increased for longer coasting
-    const veryLowSpeedDamping = 0.9; // Was 0.85
-    const slowSpeedDamping = 0.92; // Was 0.88
-    const mediumSpeedDamping = 0.93; // Was 0.92
-    const fastSpeedDamping = 0.95; // Was 0.96
+    const veryLowSpeedDamping = 0.87; // Was 0.85
+    const slowSpeedDamping = 0.89; // Was 0.88
+    const mediumSpeedDamping = 0.91; // Was 0.92
+    const fastSpeedDamping = 0.93; // Was 0.96
 
     if (releaseSpeed < epsilonSpeed) {
       this.currentDampingFactor = 0; // Stop immediately for truly imperceptible release speeds
@@ -430,8 +431,10 @@ export class InfiniteDragCanvas {
       (Math.abs(this.velocity.x) > this.minVelocity ||
         Math.abs(this.velocity.y) > this.minVelocity)
     ) {
-      this.gridTargetOffset.x += this.velocity.x * this.dragMultiplier;
-      this.gridTargetOffset.y -= this.velocity.y * this.dragMultiplier;
+      this.gridTargetOffset.x +=
+        this.velocity.x * this.momentumDistanceMultiplier;
+      this.gridTargetOffset.y -=
+        this.velocity.y * this.momentumDistanceMultiplier;
 
       // Use the dynamically calculated damping factor
       this.velocity.x *= this.currentDampingFactor;
