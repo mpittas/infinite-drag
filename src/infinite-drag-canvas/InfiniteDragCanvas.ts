@@ -11,6 +11,7 @@ import type {
 } from "./types";
 import { WarpShader } from "./WarpShader"; // Import WarpShader
 import { CardRenderer } from "./CardRenderer"; // Import the new CardRenderer
+import { VignetteShader } from "./VignetteShader"; // Import VignetteShader
 
 // Card interface removed (now in ./types)
 // WarpShader object removed (now in ./WarpShader)
@@ -22,6 +23,7 @@ export class InfiniteDragCanvas {
   private container: HTMLElement;
   private composer!: EffectComposer;
   private warpPass!: ShaderPass;
+  private vignettePass!: ShaderPass; // Add VignettePass property
 
   private initialCameraZ!: number;
   private zoomedOutCameraZ!: number;
@@ -97,6 +99,13 @@ export class InfiniteDragCanvas {
 
     const renderPass = new RenderPass(this.scene, this.camera);
     this.composer.addPass(renderPass);
+
+    // Add Vignette Pass
+    this.vignettePass = new ShaderPass(VignetteShader);
+    this.vignettePass.uniforms["aspectRatio"].value =
+      this.container.clientWidth / this.container.clientHeight;
+    // this.vignettePass.renderToScreen = false; // Default, ensure it doesn't override warpPass
+    this.composer.addPass(this.vignettePass);
 
     this.warpPass = new ShaderPass(WarpShader);
     this.warpPass.uniforms["aspectRatio"].value =
@@ -409,6 +418,10 @@ export class InfiniteDragCanvas {
     if (this.warpPass) {
       // Update shader aspect ratio
       this.warpPass.uniforms["aspectRatio"].value = newWidth / newHeight;
+    }
+    if (this.vignettePass) {
+      // Update vignette shader aspect ratio
+      this.vignettePass.uniforms["aspectRatio"].value = newWidth / newHeight;
     }
   }
 
