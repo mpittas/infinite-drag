@@ -3,64 +3,16 @@ import { gsap } from "gsap"; // Import GSAP
 import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer.js";
 import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
 import { ShaderPass } from "three/examples/jsm/postprocessing/ShaderPass.js";
+import type {
+  Card,
+  Vector2Like,
+  GridConfig,
+  UniqueCardDataItem,
+} from "./types";
+import { WarpShader } from "./WarpShader"; // Import WarpShader
 
-interface Card extends THREE.Mesh {
-  material: THREE.MeshBasicMaterial; // Each card will have a unique material
-  cardIndex?: number; // Make cardIndex optional in the interface
-}
-
-// Define the Warp Shader directly in the file
-const WarpShader = {
-  uniforms: {
-    tDiffuse: { value: null as THREE.Texture | null },
-    strength: { value: -0.05 }, // Reduced from -0.15 for smaller warping effect
-    aspectRatio: { value: 1.0 },
-  },
-  vertexShader: /* glsl */ `
-    varying vec2 vUv;
-    void main() {
-      vUv = uv;
-      gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-    }`,
-  fragmentShader: /* glsl */ `
-    uniform sampler2D tDiffuse;
-    uniform float strength; // k1 in lens distortion
-    uniform float aspectRatio;
-    varying vec2 vUv;
-
-    void main() {
-      vec2 p = vUv * 2.0 - 1.0; // Normalize to -1.0 to 1.0 screen space coordinates
-
-      // Adjust coordinates to make the space isotropic (circular) before distortion
-      vec2 pAspectCorrected = p;
-      if (aspectRatio > 1.0) { // Landscape: scale down y
-          pAspectCorrected.y *= aspectRatio;
-      } else { // Portrait or Square: scale down x
-          pAspectCorrected.x /= aspectRatio;
-      }
-
-      // Calculate squared radial distance in this isotropic space
-      float r2 = dot(pAspectCorrected, pAspectCorrected);
-      
-      // Apply radial distortion: p_d = p * (1 + strength * r^2)
-      // The distortion is applied to the coordinates in the isotropic space
-      vec2 pDistortedIsotropic = pAspectCorrected * (1.0 + strength * r2);
-
-      // Convert distorted coordinates back to original screen aspect ratio
-      vec2 pDistortedScreen = pDistortedIsotropic;
-      if (aspectRatio > 1.0) { // Landscape: unscale y
-          pDistortedScreen.y /= aspectRatio;
-      } else { // Portrait or Square: unscale x
-          pDistortedScreen.x *= aspectRatio;
-      }
-
-      // Convert back to 0.0 to 1.0 UV range for texture sampling
-      vec2 distortedUv = pDistortedScreen * 0.5 + 0.5;
-
-      // Apply toroidal wrapping
-      gl_FragColor = texture2D(tDiffuse, fract(distortedUv));
-    }`,
-};
+// Card interface removed (now in ./types)
+// WarpShader object removed (now in ./WarpShader)
 
 export class InfiniteDragCanvas {
   private scene!: THREE.Scene;
@@ -79,8 +31,7 @@ export class InfiniteDragCanvas {
   private previousGridCurrentOffset = new THREE.Vector2(0, 0); // For calculating delta move of tileGridRoot
   private smoothingFactor = 0.5;
 
-  private velocity = { x: 0, y: 0 };
-  private dampingFactor = 0.85; // Default damping, kept for reference
+  private velocity: Vector2Like = { x: 0, y: 0 };
   private currentDampingFactor = 0.85; // Dynamically adjusted damping for momentum
   private minVelocity = 0.05;
   private dragMultiplier = 0.5; // User set, was 2.0, then 1.35
@@ -91,7 +42,7 @@ export class InfiniteDragCanvas {
   private hoveredCard: Card | null = null;
 
   private images: Card[] = []; // Will store all 252 cloned card meshes
-  private gridConfig = {
+  private gridConfig: GridConfig = {
     rows: 4,
     cols: 7,
     imageSize: 200,
@@ -101,7 +52,7 @@ export class InfiniteDragCanvas {
   };
 
   private isDragging = false;
-  private previousMouse = { x: 0, y: 0 };
+  private previousMouse: Vector2Like = { x: 0, y: 0 };
 
   constructor(containerId: string) {
     const containerElement = document.getElementById(containerId);
@@ -157,7 +108,7 @@ export class InfiniteDragCanvas {
     cardIndex: number,
     backgroundColor: string | null
   ): THREE.CanvasTexture {
-    const baseTextCanvasSize = 256;
+    const baseTextCanvasSize = 260;
     const dpr = window.devicePixelRatio || 1;
     const actualCanvasSize = baseTextCanvasSize * dpr;
 
@@ -220,11 +171,7 @@ export class InfiniteDragCanvas {
     }
 
     // Define the 28 unique cards' local positions once
-    const uniqueCardData: {
-      localX: number;
-      localY: number;
-      cardIndex: number;
-    }[] = [];
+    const uniqueCardData: UniqueCardDataItem[] = [];
     for (let r = 0; r < rows; r++) {
       for (let c = 0; c < cols; c++) {
         const cardIndex = r * cols + c;
@@ -404,46 +351,36 @@ export class InfiniteDragCanvas {
     });
   }
 
+  private handleAxisWrapping(axis: "x" | "y", dimension: number): void {
+    const rootPosition = this.tileGridRoot.position;
+    const targetOffset = this.gridTargetOffset;
+    const currentOffset = this.gridCurrentOffset;
+    const prevOffset = this.previousGridCurrentOffset;
+
+    if (rootPosition[axis] > dimension / 2) {
+      rootPosition[axis] -= dimension;
+      if (this.isDragging) {
+        targetOffset[axis] -= dimension;
+        currentOffset[axis] -= dimension;
+        prevOffset[axis] -= dimension;
+      }
+    } else if (rootPosition[axis] < -dimension / 2) {
+      rootPosition[axis] += dimension;
+      if (this.isDragging) {
+        targetOffset[axis] += dimension;
+        currentOffset[axis] += dimension;
+        prevOffset[axis] += dimension;
+      }
+    }
+  }
+
   private wrapCards(): void {
-    const { cols, imageSize } = this.gridConfig;
+    const { cols, rows, imageSize } = this.gridConfig;
     const tileWidth = cols * imageSize;
-    const tileHeight = this.gridConfig.rows * imageSize; // Use this.gridConfig.rows for consistency
+    const tileHeight = rows * imageSize;
 
-    if (this.tileGridRoot.position.x > tileWidth / 2) {
-      this.tileGridRoot.position.x -= tileWidth;
-      if (this.isDragging) {
-        // Only adjust offsets if actively dragging
-        this.gridTargetOffset.x -= tileWidth;
-        this.gridCurrentOffset.x -= tileWidth;
-        this.previousGridCurrentOffset.x -= tileWidth;
-      }
-    } else if (this.tileGridRoot.position.x < -tileWidth / 2) {
-      this.tileGridRoot.position.x += tileWidth;
-      if (this.isDragging) {
-        // Only adjust offsets if actively dragging
-        this.gridTargetOffset.x += tileWidth;
-        this.gridCurrentOffset.x += tileWidth;
-        this.previousGridCurrentOffset.x += tileWidth;
-      }
-    }
-
-    if (this.tileGridRoot.position.y > tileHeight / 2) {
-      this.tileGridRoot.position.y -= tileHeight;
-      if (this.isDragging) {
-        // Only adjust offsets if actively dragging
-        this.gridTargetOffset.y -= tileHeight;
-        this.gridCurrentOffset.y -= tileHeight;
-        this.previousGridCurrentOffset.y -= tileHeight;
-      }
-    } else if (this.tileGridRoot.position.y < -tileHeight / 2) {
-      this.tileGridRoot.position.y += tileHeight;
-      if (this.isDragging) {
-        // Only adjust offsets if actively dragging
-        this.gridTargetOffset.y += tileHeight;
-        this.gridCurrentOffset.y += tileHeight;
-        this.previousGridCurrentOffset.y += tileHeight;
-      }
-    }
+    this.handleAxisWrapping("x", tileWidth);
+    this.handleAxisWrapping("y", tileHeight);
   }
 
   private animate(): void {
@@ -470,6 +407,7 @@ export class InfiniteDragCanvas {
 
     // Determine smoothing factor (adaptive if dragging fast)
     let currentActiveSmoothingFactor = this.smoothingFactor; // Base smoothing factor (user set to 0.5)
+
     if (this.isDragging) {
       // this.velocity stores the {rawDeltaX, rawDeltaY} from the last onPointerMove event
       const currentDragSpeed = Math.sqrt(
@@ -520,19 +458,24 @@ export class InfiniteDragCanvas {
     }
   }
 
+  private updateCardTexture(
+    card: Card | null,
+    backgroundColor: string | null
+  ): void {
+    if (card && card.cardIndex !== undefined) {
+      const texture = this.createCardTexture(card.cardIndex, backgroundColor);
+      if (card.material.map) {
+        (card.material.map as THREE.CanvasTexture).dispose();
+      }
+      card.material.map = texture;
+      card.material.needsUpdate = true;
+    }
+  }
+
   private handleHover(event: PointerEvent): void {
     if (this.isDragging) {
-      if (this.hoveredCard && this.hoveredCard.cardIndex !== undefined) {
-        // Check cardIndex exists
-        const originalTexture = this.createCardTexture(
-          this.hoveredCard.cardIndex!,
-          null
-        ); // Use non-null assertion
-        if (this.hoveredCard.material.map) {
-          (this.hoveredCard.material.map as THREE.CanvasTexture).dispose();
-        }
-        this.hoveredCard.material.map = originalTexture;
-        this.hoveredCard.material.needsUpdate = true;
+      if (this.hoveredCard) {
+        this.updateCardTexture(this.hoveredCard, null); // Reset old hovered card
         this.hoveredCard = null;
       }
       return;
@@ -544,62 +487,18 @@ export class InfiniteDragCanvas {
     this.raycaster.setFromCamera(this.mouse, this.camera);
     const intersects = this.raycaster.intersectObjects(this.images, false);
 
+    let newHoveredCard: Card | null = null;
     if (intersects.length > 0) {
-      const firstIntersect = intersects[0].object;
-      if ((firstIntersect as Card).cardIndex !== undefined) {
-        const newlyHoveredObject = firstIntersect as Card;
-        if (this.hoveredCard !== newlyHoveredObject) {
-          if (this.hoveredCard && this.hoveredCard.cardIndex !== undefined) {
-            const originalTexture = this.createCardTexture(
-              this.hoveredCard.cardIndex!,
-              null
-            );
-            if (this.hoveredCard.material.map) {
-              (this.hoveredCard.material.map as THREE.CanvasTexture).dispose();
-            }
-            this.hoveredCard.material.map = originalTexture;
-            this.hoveredCard.material.needsUpdate = true;
-          }
+      const firstIntersect = intersects[0].object as Card;
+      if (firstIntersect.cardIndex !== undefined) {
+        newHoveredCard = firstIntersect;
+      }
+    }
 
-          this.hoveredCard = newlyHoveredObject;
-          // newlyHoveredObject.cardIndex will be defined here due to the outer check
-          const hoveredTexture = this.createCardTexture(
-            this.hoveredCard.cardIndex!,
-            "#111"
-          );
-          if (this.hoveredCard.material.map) {
-            (this.hoveredCard.material.map as THREE.CanvasTexture).dispose();
-          }
-          this.hoveredCard.material.map = hoveredTexture;
-          this.hoveredCard.material.needsUpdate = true;
-        }
-      } else {
-        if (this.hoveredCard && this.hoveredCard.cardIndex !== undefined) {
-          const originalTexture = this.createCardTexture(
-            this.hoveredCard.cardIndex!,
-            null
-          );
-          if (this.hoveredCard.material.map) {
-            (this.hoveredCard.material.map as THREE.CanvasTexture).dispose();
-          }
-          this.hoveredCard.material.map = originalTexture;
-          this.hoveredCard.material.needsUpdate = true;
-          this.hoveredCard = null;
-        }
-      }
-    } else {
-      if (this.hoveredCard && this.hoveredCard.cardIndex !== undefined) {
-        const originalTexture = this.createCardTexture(
-          this.hoveredCard.cardIndex!,
-          null
-        );
-        if (this.hoveredCard.material.map) {
-          (this.hoveredCard.material.map as THREE.CanvasTexture).dispose();
-        }
-        this.hoveredCard.material.map = originalTexture;
-        this.hoveredCard.material.needsUpdate = true;
-        this.hoveredCard = null;
-      }
+    if (this.hoveredCard !== newHoveredCard) {
+      this.updateCardTexture(this.hoveredCard, null); // Reset old one
+      this.hoveredCard = newHoveredCard;
+      this.updateCardTexture(this.hoveredCard, "#111"); // Highlight new one
     }
   }
 

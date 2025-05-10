@@ -1,6 +1,5 @@
 import * as THREE from "three";
 
-// Define the Warp Shader directly in the file
 export const WarpShader = {
   uniforms: {
     tDiffuse: { value: null as THREE.Texture | null },

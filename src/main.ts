@@ -1,4 +1,4 @@
-import { InfiniteDragCanvas } from "./InfiniteDragCanvas";
+import { InfiniteDragCanvas } from "./infinite-drag-canvas/InfiniteDragCanvas";
 
 // Comment out or remove the existing Three.js scene setup
 /*
