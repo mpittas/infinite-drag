@@ -8,15 +8,19 @@ import type {
   Vector2Like,
   GridConfig,
   UniqueCardDataItem,
+  // Project, // Removed as it's no longer directly used here
 } from "./types";
 import { WarpShader } from "./WarpShader"; // Import WarpShader
 import { CardRenderer } from "./CardRenderer"; // Import the new CardRenderer
 import { VignetteShader } from "./VignetteShader"; // Import VignetteShader
+import { projects } from "./projectData"; // Import projects from the new file
 
 // Card interface removed (now in ./types)
 // WarpShader object removed (now in ./WarpShader)
 
 export class InfiniteDragCanvas {
+  // private projects: Project[] = [ ... ]; // This line will be removed
+
   private scene!: THREE.Scene;
   private camera!: THREE.PerspectiveCamera;
   private renderer!: THREE.WebGLRenderer;
@@ -152,8 +156,21 @@ export class InfiniteDragCanvas {
         tileGroup.position.set(tileCol * tileWidth, -tileRow * tileHeight, 0); // Note: -tileRow for Y up
 
         uniqueCardData.forEach((data) => {
-          // Use CardRenderer to create the texture
-          const texture = CardRenderer.createCardTexture(data.cardIndex, null);
+          // Get the project for the current card index, cycling through the projects array
+          const project = projects[data.cardIndex % projects.length];
+          if (!project) {
+            console.warn(
+              `No project data found for cardIndex ${data.cardIndex}`
+            );
+            // Potentially use a default placeholder project or skip
+            return;
+          }
+
+          const texture = CardRenderer.createCardTexture(
+            project,
+            data.cardIndex,
+            null
+          );
           const material = new THREE.MeshBasicMaterial({
             map: texture,
             side: THREE.DoubleSide,
@@ -430,8 +447,15 @@ export class InfiniteDragCanvas {
     backgroundColor: string | null
   ): void {
     if (card && card.cardIndex !== undefined) {
-      // Use CardRenderer to create the texture
+      const project = projects[card.cardIndex % projects.length];
+      if (!project) {
+        console.warn(
+          `No project data for hover on cardIndex ${card.cardIndex}`
+        );
+        return;
+      }
       const texture = CardRenderer.createCardTexture(
+        project,
         card.cardIndex,
         backgroundColor
       );

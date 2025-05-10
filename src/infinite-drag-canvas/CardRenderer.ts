@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import type { Project } from "./types"; // Import the Project type
 
 export class CardRenderer {
   private static readonly BASE_TEXT_CANVAS_SIZE = 160; // Reduced size
@@ -26,7 +27,8 @@ export class CardRenderer {
   }
 
   public static createCardTexture(
-    cardIndex: number,
+    project: Project, // Changed from cardIndex
+    originalCardIndex: number, // Keep for fallback or unique ID if needed
     backgroundColor: string | null
   ): THREE.CanvasTexture {
     const baseTextCanvasSize = CardRenderer.BASE_TEXT_CANVAS_SIZE * 1.75;
@@ -86,13 +88,17 @@ export class CardRenderer {
     // 3. Title (Top-right, Uppercase)
     ctx.fillStyle = titleColor;
     ctx.font = `bold ${titleFontSize}px Arial`;
-    ctx.textAlign = "right"; // Align to the right
+    ctx.textAlign = "right";
     ctx.textBaseline = "top";
-    const projectTitle = `Project ${cardIndex + 1}`.toUpperCase(); // Make uppercase
-    ctx.fillText(projectTitle, baseTextCanvasSize - padding, padding * 0.5); // Adjusted Y for title to be higher
+    // Use project title, fallback to original card index
+    const displayTitle = (
+      project.title || `Project ${originalCardIndex + 1}`
+    ).toUpperCase();
+    ctx.fillText(displayTitle, baseTextCanvasSize - padding, padding * 0.5);
 
     // 4. Category Badges (Bottom, pill-shaped, transparent with white border & text)
-    const categories = ["UI/UX", "Motion", "Dev"]; // Shorter categories
+    const categories =
+      project.categories.length > 0 ? project.categories : ["N/A"]; // Use project categories, fallback
     let currentBadgeX = padding;
     const badgeY = baseTextCanvasSize - padding / 2 - badgeHeight;
     const badgeRadius = badgeHeight / 1.6; // Pill shape

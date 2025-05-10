@@ -24,3 +24,11 @@ export interface UniqueCardDataItem {
   localY: number;
   cardIndex: number;
 }
+
+export interface Project {
+  id: string; // Or number
+  title: string;
+  categories: string[];
+  imageUrl?: string; // Optional for now, for future image loading
+  description?: string; // Optional
+}
