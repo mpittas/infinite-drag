@@ -80,9 +80,10 @@ export class InfiniteDragCanvas {
   private smoothingFactor = 0.5;
 
   private velocity = { x: 0, y: 0 };
-  private dampingFactor = 0.85; // Increased from 0.9 for more sustained momentum
+  private dampingFactor = 0.85; // Default damping, kept for reference
+  private currentDampingFactor = 0.85; // Dynamically adjusted damping for momentum
   private minVelocity = 0.1;
-  private dragMultiplier = 1.5; // Increased from 1 for faster dragging
+  private dragMultiplier = 1.5; // User set, was 2.0, then 1.35
 
   private raycaster = new THREE.Raycaster();
   private mouse = new THREE.Vector2();
@@ -313,13 +314,63 @@ export class InfiniteDragCanvas {
     this.isDragging = false;
     this.container.style.cursor = "grab";
 
-    // Keep the last velocity for momentum, but don't apply it here directly.
-    // The animate loop will handle the momentum from this.velocity.
+    // Calculate release speed from the last known velocity before pointer up
+    const releaseSpeed = Math.sqrt(
+      this.velocity.x * this.velocity.x + this.velocity.y * this.velocity.y
+    );
+
+    // Define parameters for dynamic damping
+    const epsilonSpeed = 0.01; // Speeds below this are considered an instant stop
+    // minRegisteredSpeed is now effectively epsilonSpeed for starting interpolation
+    const slowSpeedThreshold = 5.0; // Upper limit for a "slow" release
+    const mediumSpeedThreshold = 20.0; // Upper limit for a "medium" release, above is "fast"
+
+    // Damping values (higher means less damping/more coast) - Increased for longer coasting
+    const veryLowSpeedDamping = 0.9; // Was 0.85
+    const slowSpeedDamping = 0.92; // Was 0.88
+    const mediumSpeedDamping = 0.93; // Was 0.92
+    const fastSpeedDamping = 0.95; // Was 0.96
+
+    if (releaseSpeed < epsilonSpeed) {
+      this.currentDampingFactor = 0; // Stop immediately for truly imperceptible release speeds
+    } else if (releaseSpeed < slowSpeedThreshold) {
+      // Interpolate from epsilonSpeed up to slowSpeedThreshold
+      // At releaseSpeed = epsilonSpeed, factor is veryLowSpeedDamping
+      // At releaseSpeed = slowSpeedThreshold, factor approaches slowSpeedDamping
+      const range = slowSpeedThreshold - epsilonSpeed;
+      const fraction = (releaseSpeed - epsilonSpeed) / range;
+      this.currentDampingFactor =
+        veryLowSpeedDamping +
+        fraction * (slowSpeedDamping - veryLowSpeedDamping);
+    } else if (releaseSpeed < mediumSpeedThreshold) {
+      // Interpolate for slow to medium speeds
+      const range = mediumSpeedThreshold - slowSpeedThreshold;
+      const fraction = (releaseSpeed - slowSpeedThreshold) / range;
+      this.currentDampingFactor =
+        slowSpeedDamping + fraction * (mediumSpeedDamping - slowSpeedDamping);
+    } else {
+      // Fast speeds and beyond
+      const veryFastSpeedThreshold = 50.0;
+      if (releaseSpeed >= veryFastSpeedThreshold) {
+        this.currentDampingFactor = fastSpeedDamping;
+      } else {
+        const range = veryFastSpeedThreshold - mediumSpeedThreshold;
+        const fraction = (releaseSpeed - mediumSpeedThreshold) / range;
+        this.currentDampingFactor =
+          mediumSpeedDamping +
+          fraction * (fastSpeedDamping - mediumSpeedDamping);
+      }
+    }
+
+    this.currentDampingFactor = Math.max(
+      0,
+      Math.min(this.currentDampingFactor, 0.99)
+    );
 
     // Zoom in camera to initial position
     gsap.to(this.camera.position, {
       z: this.initialCameraZ,
-      duration: 0.25, // Reduced from 0.5 for faster zoom
+      duration: 0.35, // Reduced from 0.5 for faster zoom
       ease: "power2.out",
       onUpdate: () => {
         // Ensure wrapping logic keeps up during zoom animation
@@ -333,37 +384,40 @@ export class InfiniteDragCanvas {
     const tileWidth = cols * imageSize;
     const tileHeight = this.gridConfig.rows * imageSize; // Use this.gridConfig.rows for consistency
 
-    // Wrap the tileGridRoot's position
-    // If the center of the tileGridRoot moves more than half a tile width/height away
-    // from where it should be (considering its current wrapped position), snap it back.
-    // This effectively re-centers the 3x3 grid around the camera's focus.
-
-    // A simpler way for wrapping the root is to ensure its position components
-    // are always within +/- half a tile dimension from a multiple of the tile dimension.
-    // More directly: if it moves by a whole tile, reset that component of its offset.
-
     if (this.tileGridRoot.position.x > tileWidth / 2) {
       this.tileGridRoot.position.x -= tileWidth;
-      this.gridTargetOffset.x -= tileWidth; // Keep target consistent with current
-      this.gridCurrentOffset.x -= tileWidth;
-      this.previousGridCurrentOffset.x -= tileWidth;
+      if (this.isDragging) {
+        // Only adjust offsets if actively dragging
+        this.gridTargetOffset.x -= tileWidth;
+        this.gridCurrentOffset.x -= tileWidth;
+        this.previousGridCurrentOffset.x -= tileWidth;
+      }
     } else if (this.tileGridRoot.position.x < -tileWidth / 2) {
       this.tileGridRoot.position.x += tileWidth;
-      this.gridTargetOffset.x += tileWidth;
-      this.gridCurrentOffset.x += tileWidth;
-      this.previousGridCurrentOffset.x += tileWidth;
+      if (this.isDragging) {
+        // Only adjust offsets if actively dragging
+        this.gridTargetOffset.x += tileWidth;
+        this.gridCurrentOffset.x += tileWidth;
+        this.previousGridCurrentOffset.x += tileWidth;
+      }
     }
 
     if (this.tileGridRoot.position.y > tileHeight / 2) {
       this.tileGridRoot.position.y -= tileHeight;
-      this.gridTargetOffset.y -= tileHeight;
-      this.gridCurrentOffset.y -= tileHeight;
-      this.previousGridCurrentOffset.y -= tileHeight;
+      if (this.isDragging) {
+        // Only adjust offsets if actively dragging
+        this.gridTargetOffset.y -= tileHeight;
+        this.gridCurrentOffset.y -= tileHeight;
+        this.previousGridCurrentOffset.y -= tileHeight;
+      }
     } else if (this.tileGridRoot.position.y < -tileHeight / 2) {
       this.tileGridRoot.position.y += tileHeight;
-      this.gridTargetOffset.y += tileHeight;
-      this.gridCurrentOffset.y += tileHeight;
-      this.previousGridCurrentOffset.y += tileHeight;
+      if (this.isDragging) {
+        // Only adjust offsets if actively dragging
+        this.gridTargetOffset.y += tileHeight;
+        this.gridCurrentOffset.y += tileHeight;
+        this.previousGridCurrentOffset.y += tileHeight;
+      }
     }
   }
 
@@ -378,8 +432,11 @@ export class InfiniteDragCanvas {
     ) {
       this.gridTargetOffset.x += this.velocity.x * this.dragMultiplier;
       this.gridTargetOffset.y -= this.velocity.y * this.dragMultiplier;
-      this.velocity.x *= this.dampingFactor;
-      this.velocity.y *= this.dampingFactor;
+
+      // Use the dynamically calculated damping factor
+      this.velocity.x *= this.currentDampingFactor;
+      this.velocity.y *= this.currentDampingFactor;
+
       if (Math.abs(this.velocity.x) <= this.minVelocity) this.velocity.x = 0;
       if (Math.abs(this.velocity.y) <= this.minVelocity) this.velocity.y = 0;
     }
