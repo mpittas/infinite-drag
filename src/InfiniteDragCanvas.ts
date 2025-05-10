@@ -77,12 +77,12 @@ export class InfiniteDragCanvas {
   private gridCurrentOffset = new THREE.Vector2(0, 0); // Controls tileGridRoot.position
   private gridTargetOffset = new THREE.Vector2(0, 0); // Target for tileGridRoot.position
   private previousGridCurrentOffset = new THREE.Vector2(0, 0); // For calculating delta move of tileGridRoot
-  private smoothingFactor = 0.15;
+  private smoothingFactor = 0.5;
 
   private velocity = { x: 0, y: 0 };
   private dampingFactor = 0.85; // Increased from 0.9 for more sustained momentum
   private minVelocity = 0.1;
-  private dragMultiplier = 1.35; // Increased from 1 for faster dragging
+  private dragMultiplier = 1.5; // Increased from 1 for faster dragging
 
   private raycaster = new THREE.Raycaster();
   private mouse = new THREE.Vector2();
@@ -370,6 +370,7 @@ export class InfiniteDragCanvas {
   private animate(): void {
     requestAnimationFrame(this.animate.bind(this));
 
+    // Momentum logic for when not dragging
     if (
       !this.isDragging &&
       (Math.abs(this.velocity.x) > this.minVelocity ||
@@ -383,7 +384,26 @@ export class InfiniteDragCanvas {
       if (Math.abs(this.velocity.y) <= this.minVelocity) this.velocity.y = 0;
     }
 
-    this.gridCurrentOffset.lerp(this.gridTargetOffset, this.smoothingFactor);
+    // Determine smoothing factor (adaptive if dragging fast)
+    let currentActiveSmoothingFactor = this.smoothingFactor; // Base smoothing factor (user set to 0.5)
+    if (this.isDragging) {
+      // this.velocity stores the {rawDeltaX, rawDeltaY} from the last onPointerMove event
+      const currentDragSpeed = Math.sqrt(
+        this.velocity.x * this.velocity.x + this.velocity.y * this.velocity.y
+      );
+
+      const fastDragThreshold = 25; // Pixels per pointer event for a "fast" drag
+      const highSpeedSmoothingFactor = 0.75; // More responsive smoothing for fast drags
+
+      if (currentDragSpeed > fastDragThreshold) {
+        currentActiveSmoothingFactor = highSpeedSmoothingFactor;
+      }
+    }
+
+    this.gridCurrentOffset.lerp(
+      this.gridTargetOffset,
+      currentActiveSmoothingFactor
+    );
 
     const deltaMoveX =
       this.gridCurrentOffset.x - this.previousGridCurrentOffset.x;
