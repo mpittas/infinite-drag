@@ -82,9 +82,9 @@ export class InfiniteDragCanvas {
   private velocity = { x: 0, y: 0 };
   private dampingFactor = 0.85; // Default damping, kept for reference
   private currentDampingFactor = 0.85; // Dynamically adjusted damping for momentum
-  private minVelocity = 0.1;
+  private minVelocity = 0.05;
   private dragMultiplier = 0.5; // User set, was 2.0, then 1.35
-  private momentumDistanceMultiplier = 4; // Amplifies grid movement during momentum phase.
+  private currentMomentumDistanceMultiplier = 4.0; // Dynamically set in onPointerUp
 
   private raycaster = new THREE.Raycaster();
   private mouse = new THREE.Vector2();
@@ -315,60 +315,84 @@ export class InfiniteDragCanvas {
     this.isDragging = false;
     this.container.style.cursor = "grab";
 
-    // Calculate release speed from the last known velocity before pointer up
     const releaseSpeed = Math.sqrt(
       this.velocity.x * this.velocity.x + this.velocity.y * this.velocity.y
     );
 
-    // Define parameters for dynamic damping
-    const epsilonSpeed = 0.01; // Speeds below this are considered an instant stop
-    // minRegisteredSpeed is now effectively epsilonSpeed for starting interpolation
+    // --- Damping Factor Logic (controls duration of coast) ---
+    const epsilonSpeed = 0.01; // Threshold for very slow movements
     const slowSpeedThreshold = 5.0; // Upper limit for a "slow" release
-    const mediumSpeedThreshold = 20.0; // Upper limit for a "medium" release, above is "fast"
+    const mediumSpeedThreshold = 20.0; // Upper limit for a "medium" release
+    const fastSpeedThreshold = 50.0; // Upper limit for "fast" release, above is "very fast"
 
-    // Damping values (higher means less damping/more coast) - Increased for longer coasting
-    const veryLowSpeedDamping = 0.87; // Was 0.85
-    const slowSpeedDamping = 0.89; // Was 0.88
-    const mediumSpeedDamping = 0.91; // Was 0.92
-    const fastSpeedDamping = 0.93; // Was 0.96
+    const minCoastingDampingFactor = 0.92;
+    const slowSpeedDamping = 0.94;
+    const mediumSpeedDamping = 0.96;
+    const fastSpeedDamping = 0.96; // Kept from previous adjustment
 
     if (releaseSpeed < epsilonSpeed) {
-      this.currentDampingFactor = 0; // Stop immediately for truly imperceptible release speeds
+      this.currentDampingFactor = minCoastingDampingFactor;
     } else if (releaseSpeed < slowSpeedThreshold) {
-      // Interpolate from epsilonSpeed up to slowSpeedThreshold
-      // At releaseSpeed = epsilonSpeed, factor is veryLowSpeedDamping
-      // At releaseSpeed = slowSpeedThreshold, factor approaches slowSpeedDamping
       const range = slowSpeedThreshold - epsilonSpeed;
-      const fraction = (releaseSpeed - epsilonSpeed) / range;
+      const fraction = Math.max(
+        0,
+        Math.min(1, (releaseSpeed - epsilonSpeed) / range)
+      );
       this.currentDampingFactor =
-        veryLowSpeedDamping +
-        fraction * (slowSpeedDamping - veryLowSpeedDamping);
+        minCoastingDampingFactor +
+        fraction * (slowSpeedDamping - minCoastingDampingFactor);
     } else if (releaseSpeed < mediumSpeedThreshold) {
-      // Interpolate for slow to medium speeds
       const range = mediumSpeedThreshold - slowSpeedThreshold;
-      const fraction = (releaseSpeed - slowSpeedThreshold) / range;
+      const fraction = Math.max(
+        0,
+        Math.min(1, (releaseSpeed - slowSpeedThreshold) / range)
+      );
       this.currentDampingFactor =
         slowSpeedDamping + fraction * (mediumSpeedDamping - slowSpeedDamping);
+    } else if (releaseSpeed < fastSpeedThreshold) {
+      const range = fastSpeedThreshold - mediumSpeedThreshold;
+      const fraction = Math.max(
+        0,
+        Math.min(1, (releaseSpeed - mediumSpeedThreshold) / range)
+      );
+      this.currentDampingFactor =
+        mediumSpeedDamping + fraction * (fastSpeedDamping - mediumSpeedDamping);
     } else {
-      // Fast speeds and beyond
-      const veryFastSpeedThreshold = 50.0;
-      if (releaseSpeed >= veryFastSpeedThreshold) {
-        this.currentDampingFactor = fastSpeedDamping;
-      } else {
-        const range = veryFastSpeedThreshold - mediumSpeedThreshold;
-        const fraction = (releaseSpeed - mediumSpeedThreshold) / range;
-        this.currentDampingFactor =
-          mediumSpeedDamping +
-          fraction * (fastSpeedDamping - mediumSpeedDamping);
-      }
+      this.currentDampingFactor = fastSpeedDamping;
     }
-
     this.currentDampingFactor = Math.max(
-      0,
+      minCoastingDampingFactor,
       Math.min(this.currentDampingFactor, 0.99)
     );
 
-    // Zoom in camera to initial position
+    // --- Momentum Distance Multiplier Logic (controls speed/distance of coast) ---
+    const lowSpeedMomentumMult = 4.0;
+    const midSpeedMomentumMult = 3.0;
+    const highSpeedMomentumMult = 2.0;
+
+    if (releaseSpeed < epsilonSpeed) {
+      this.currentMomentumDistanceMultiplier = lowSpeedMomentumMult;
+    } else if (releaseSpeed < slowSpeedThreshold) {
+      // 0.01 to 5.0
+      const fraction =
+        (releaseSpeed - epsilonSpeed) / (slowSpeedThreshold - epsilonSpeed);
+      this.currentMomentumDistanceMultiplier =
+        lowSpeedMomentumMult +
+        fraction * (midSpeedMomentumMult - lowSpeedMomentumMult);
+    } else if (releaseSpeed < mediumSpeedThreshold) {
+      // 5.0 to 20.0
+      const fraction =
+        (releaseSpeed - slowSpeedThreshold) /
+        (mediumSpeedThreshold - slowSpeedThreshold);
+      this.currentMomentumDistanceMultiplier =
+        midSpeedMomentumMult +
+        fraction * (highSpeedMomentumMult - midSpeedMomentumMult);
+    } else {
+      // 20.0+
+      this.currentMomentumDistanceMultiplier = highSpeedMomentumMult;
+    }
+    // Ensure a minimum sensible multiplier if needed, e.g., Math.max(1.0, this.currentMomentumDistanceMultiplier)
+
     gsap.to(this.camera.position, {
       z: this.initialCameraZ,
       duration: 0.35, // Reduced from 0.5 for faster zoom
@@ -432,9 +456,9 @@ export class InfiniteDragCanvas {
         Math.abs(this.velocity.y) > this.minVelocity)
     ) {
       this.gridTargetOffset.x +=
-        this.velocity.x * this.momentumDistanceMultiplier;
+        this.velocity.x * this.currentMomentumDistanceMultiplier;
       this.gridTargetOffset.y -=
-        this.velocity.y * this.momentumDistanceMultiplier;
+        this.velocity.y * this.currentMomentumDistanceMultiplier;
 
       // Use the dynamically calculated damping factor
       this.velocity.x *= this.currentDampingFactor;
