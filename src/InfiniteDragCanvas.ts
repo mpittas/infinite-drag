@@ -57,18 +57,8 @@ const WarpShader = {
       // Convert back to 0.0 to 1.0 UV range for texture sampling
       vec2 distortedUv = pDistortedScreen * 0.5 + 0.5;
 
-      // Clamp or discard if UVs are out of bounds
-      if (distortedUv.x < 0.0 || distortedUv.x > 1.0 || distortedUv.y < 0.0 || distortedUv.y > 1.0) {
-         // Option 1: Discard (transparent) - useful if background is visible behind composer
-         // gl_FragColor = vec4(0.0, 0.0, 0.0, 0.0);
-         // Option 2: Clamp to edge (effectively done by texture2D default, but can be explicit)
-         // distortedUv = clamp(distortedUv, vec2(0.0), vec2(1.0));
-         // gl_FragColor = texture2D(tDiffuse, distortedUv);
-         // Option 3: Show a debug color or the scene background color if desired
-         gl_FragColor = vec4(0.0,0.0,0.0,1.0); // Render black for out-of-bounds (matches dark theme)
-      } else {
-         gl_FragColor = texture2D(tDiffuse, distortedUv);
-      }
+      // Apply toroidal wrapping
+      gl_FragColor = texture2D(tDiffuse, fract(distortedUv));
     }`,
 };
 
@@ -83,10 +73,11 @@ export class InfiniteDragCanvas {
   private initialCameraZ!: number;
   private zoomedOutCameraZ!: number;
 
-  private gridCurrentOffset = new THREE.Vector2(0, 0);
-  private gridTargetOffset = new THREE.Vector2(0, 0);
-  private previousGridCurrentOffset = new THREE.Vector2(0, 0);
-  private smoothingFactor = 0.15; // Adjust for more (0.1) or less (0.3) smoothing
+  private tileGridRoot = new THREE.Group(); // This will hold all 9 tiles and be moved
+  private gridCurrentOffset = new THREE.Vector2(0, 0); // Controls tileGridRoot.position
+  private gridTargetOffset = new THREE.Vector2(0, 0); // Target for tileGridRoot.position
+  private previousGridCurrentOffset = new THREE.Vector2(0, 0); // For calculating delta move of tileGridRoot
+  private smoothingFactor = 0.15;
 
   private velocity = { x: 0, y: 0 };
   private dampingFactor = 0.85; // Increased from 0.9 for more sustained momentum
@@ -97,10 +88,10 @@ export class InfiniteDragCanvas {
   private mouse = new THREE.Vector2();
   private hoveredCard: Card | null = null;
 
-  private images: Card[] = [];
+  private images: Card[] = []; // Will store all 252 cloned card meshes
   private gridConfig = {
-    rows: 7,
-    cols: 13,
+    rows: 4,
+    cols: 7,
     imageSize: 200,
     spacing: 0, // No space between items
     gridWidth: 0,
@@ -128,8 +119,8 @@ export class InfiniteDragCanvas {
     this.scene.background = new THREE.Color(0x1a1a1a); // Dark gray background
 
     const aspect = this.container.clientWidth / this.container.clientHeight;
-    this.camera = new THREE.PerspectiveCamera(90, aspect, 0.1, 1000);
-    this.camera.position.set(0, 0, 300); // Initial Z position
+    this.camera = new THREE.PerspectiveCamera(70, aspect, 0.1, 1000);
+    this.camera.position.set(0, 0, 500); // Initial Z position
 
     this.initialCameraZ = this.camera.position.z;
     this.zoomedOutCameraZ = this.initialCameraZ * 1.25; // Reduced from 1.5 to zoom out less
@@ -140,6 +131,8 @@ export class InfiniteDragCanvas {
       this.container.clientHeight
     );
     this.container.appendChild(this.renderer.domElement);
+
+    this.scene.add(this.tileGridRoot); // Add the main root for tiles to the scene
 
     // Initialize Post-Processing
     this.initPostProcessing();
@@ -208,34 +201,61 @@ export class InfiniteDragCanvas {
 
   private createCardGrid(): void {
     const { rows, cols, imageSize } = this.gridConfig;
-    this.gridConfig.gridWidth = cols * imageSize;
-    this.gridConfig.gridHeight = rows * imageSize;
+    const tileWidth = cols * imageSize;
+    const tileHeight = rows * imageSize;
 
-    for (let row = 0; row < rows; row++) {
-      for (let col = 0; col < cols; col++) {
-        const cardIndexValue = row * cols + col;
+    // Clear previous images if any (e.g., on a hot reload or recreation)
+    this.images.forEach((image) => {
+      if (image.geometry) image.geometry.dispose();
+      if (image.material && image.material.map)
+        (image.material.map as THREE.CanvasTexture).dispose();
+      if (image.material) image.material.dispose();
+      // this.scene.remove(image); // Cards are now added to tileGroups, then tileGridRoot
+    });
+    this.images = [];
+    while (this.tileGridRoot.children.length > 0) {
+      this.tileGridRoot.remove(this.tileGridRoot.children[0]);
+    }
 
-        // Pass cardIndexValue which is a number
-        const initialTexture = this.createCardTexture(cardIndexValue, null);
+    // Define the 28 unique cards' local positions once
+    const uniqueCardData: {
+      localX: number;
+      localY: number;
+      cardIndex: number;
+    }[] = [];
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        const cardIndex = r * cols + c;
+        const x = c * imageSize - tileWidth / 2 + imageSize / 2;
+        const y = tileHeight / 2 - r * imageSize - imageSize / 2;
+        uniqueCardData.push({ localX: x, localY: y, cardIndex });
+      }
+    }
 
-        const material = new THREE.MeshBasicMaterial({
-          map: initialTexture,
-          side: THREE.DoubleSide,
-          transparent: true,
+    // Create a 3x3 grid of tiles
+    for (let tileRow = -1; tileRow <= 1; tileRow++) {
+      // -1 (top), 0 (middle), 1 (bottom)
+      for (let tileCol = -1; tileCol <= 1; tileCol++) {
+        // -1 (left), 0 (center), 1 (right)
+        const tileGroup = new THREE.Group();
+        tileGroup.position.set(tileCol * tileWidth, -tileRow * tileHeight, 0); // Note: -tileRow for Y up
+
+        uniqueCardData.forEach((data) => {
+          const texture = this.createCardTexture(data.cardIndex, null);
+          const material = new THREE.MeshBasicMaterial({
+            map: texture,
+            side: THREE.DoubleSide,
+            transparent: true,
+          });
+          const geometry = new THREE.PlaneGeometry(imageSize, imageSize);
+          const cardClone = new THREE.Mesh(geometry, material) as Card;
+          cardClone.cardIndex = data.cardIndex;
+          cardClone.position.set(data.localX, data.localY, 0);
+
+          tileGroup.add(cardClone);
+          this.images.push(cardClone); // For raycasting all visible cards
         });
-        const geometry = new THREE.PlaneGeometry(imageSize, imageSize);
-        const imageMesh = new THREE.Mesh(geometry, material) as Card; // Cast is now more acceptable
-
-        imageMesh.cardIndex = cardIndexValue; // Assign the definite number
-
-        const x =
-          col * imageSize - this.gridConfig.gridWidth / 2 + imageSize / 2;
-        const y =
-          this.gridConfig.gridHeight / 2 - row * imageSize - imageSize / 2;
-
-        imageMesh.position.set(x, y, 0);
-        this.scene.add(imageMesh);
-        this.images.push(imageMesh);
+        this.tileGridRoot.add(tileGroup);
       }
     }
   }
@@ -279,17 +299,11 @@ export class InfiniteDragCanvas {
 
   private onPointerMove(event: PointerEvent): void {
     if (!this.isDragging) return;
-
     const rawDeltaX = event.clientX - this.previousMouse.x;
     const rawDeltaY = event.clientY - this.previousMouse.y;
-
-    // Update target offset based on mouse movement and multiplier
     this.gridTargetOffset.x += rawDeltaX * this.dragMultiplier;
-    this.gridTargetOffset.y -= rawDeltaY * this.dragMultiplier; // Y-axis inverted for world space
-
-    // Store raw velocity for momentum
+    this.gridTargetOffset.y -= rawDeltaY * this.dragMultiplier;
     this.velocity = { x: rawDeltaX, y: rawDeltaY };
-
     this.previousMouse.x = event.clientX;
     this.previousMouse.y = event.clientY;
   }
@@ -315,39 +329,42 @@ export class InfiniteDragCanvas {
   }
 
   private wrapCards(): void {
-    const { imageSize, rows, cols } = this.gridConfig;
-    // Since spacing is 0, totalGridWidth is cols * imageSize
-    const totalGridWidth = cols * imageSize;
-    const totalGridHeight = rows * imageSize;
+    const { cols, imageSize } = this.gridConfig;
+    const tileWidth = cols * imageSize;
+    const tileHeight = this.gridConfig.rows * imageSize; // Use this.gridConfig.rows for consistency
 
-    // Calculate visible frustum height and width at z=0 plane
-    // This gives us the boundaries of what the camera can see at the cards' depth
-    const vFOV = THREE.MathUtils.degToRad(this.camera.fov);
-    const visibleHeightAtZ = 2 * Math.tan(vFOV / 2) * this.camera.position.z;
-    const visibleWidthAtZ = visibleHeightAtZ * this.camera.aspect;
+    // Wrap the tileGridRoot's position
+    // If the center of the tileGridRoot moves more than half a tile width/height away
+    // from where it should be (considering its current wrapped position), snap it back.
+    // This effectively re-centers the 3x3 grid around the camera's focus.
 
-    const halfVisibleWidth = visibleWidthAtZ / 2;
-    const halfVisibleHeight = visibleHeightAtZ / 2;
+    // A simpler way for wrapping the root is to ensure its position components
+    // are always within +/- half a tile dimension from a multiple of the tile dimension.
+    // More directly: if it moves by a whole tile, reset that component of its offset.
 
-    this.images.forEach((image) => {
-      // Check if the card's left edge is beyond the right screen edge
-      if (image.position.x - imageSize / 2 > halfVisibleWidth) {
-        image.position.x -= totalGridWidth;
-      }
-      // Check if the card's right edge is beyond the left screen edge
-      else if (image.position.x + imageSize / 2 < -halfVisibleWidth) {
-        image.position.x += totalGridWidth;
-      }
+    if (this.tileGridRoot.position.x > tileWidth / 2) {
+      this.tileGridRoot.position.x -= tileWidth;
+      this.gridTargetOffset.x -= tileWidth; // Keep target consistent with current
+      this.gridCurrentOffset.x -= tileWidth;
+      this.previousGridCurrentOffset.x -= tileWidth;
+    } else if (this.tileGridRoot.position.x < -tileWidth / 2) {
+      this.tileGridRoot.position.x += tileWidth;
+      this.gridTargetOffset.x += tileWidth;
+      this.gridCurrentOffset.x += tileWidth;
+      this.previousGridCurrentOffset.x += tileWidth;
+    }
 
-      // Check if the card's bottom edge is beyond the top screen edge
-      if (image.position.y - imageSize / 2 > halfVisibleHeight) {
-        image.position.y -= totalGridHeight;
-      }
-      // Check if the card's top edge is beyond the bottom screen edge
-      else if (image.position.y + imageSize / 2 < -halfVisibleHeight) {
-        image.position.y += totalGridHeight;
-      }
-    });
+    if (this.tileGridRoot.position.y > tileHeight / 2) {
+      this.tileGridRoot.position.y -= tileHeight;
+      this.gridTargetOffset.y -= tileHeight;
+      this.gridCurrentOffset.y -= tileHeight;
+      this.previousGridCurrentOffset.y -= tileHeight;
+    } else if (this.tileGridRoot.position.y < -tileHeight / 2) {
+      this.tileGridRoot.position.y += tileHeight;
+      this.gridTargetOffset.y += tileHeight;
+      this.gridCurrentOffset.y += tileHeight;
+      this.previousGridCurrentOffset.y += tileHeight;
+    }
   }
 
   private animate(): void {
@@ -358,39 +375,29 @@ export class InfiniteDragCanvas {
       (Math.abs(this.velocity.x) > this.minVelocity ||
         Math.abs(this.velocity.y) > this.minVelocity)
     ) {
-      // Apply momentum by continuing to move the target offset
-      this.gridTargetOffset.x += this.velocity.x * this.dragMultiplier; // Momentum uses multiplier too for consistency
+      this.gridTargetOffset.x += this.velocity.x * this.dragMultiplier;
       this.gridTargetOffset.y -= this.velocity.y * this.dragMultiplier;
-
       this.velocity.x *= this.dampingFactor;
       this.velocity.y *= this.dampingFactor;
-
       if (Math.abs(this.velocity.x) <= this.minVelocity) this.velocity.x = 0;
       if (Math.abs(this.velocity.y) <= this.minVelocity) this.velocity.y = 0;
     }
 
-    // Lerp current offset towards target offset
     this.gridCurrentOffset.lerp(this.gridTargetOffset, this.smoothingFactor);
 
-    // Calculate the actual delta to move cards this frame
     const deltaMoveX =
       this.gridCurrentOffset.x - this.previousGridCurrentOffset.x;
     const deltaMoveY =
       this.gridCurrentOffset.y - this.previousGridCurrentOffset.y;
 
-    // Apply this delta to all images
+    // Move the entire tileGridRoot
     if (Math.abs(deltaMoveX) > 0.001 || Math.abs(deltaMoveY) > 0.001) {
-      // Avoid tiny movements
-      this.images.forEach((image) => {
-        image.position.x += deltaMoveX;
-        image.position.y += deltaMoveY;
-      });
+      this.tileGridRoot.position.x += deltaMoveX;
+      this.tileGridRoot.position.y += deltaMoveY;
     }
-
-    // Update previous offset for next frame
     this.previousGridCurrentOffset.copy(this.gridCurrentOffset);
 
-    this.wrapCards();
+    this.wrapCards(); // This now wraps tileGridRoot.position
     this.composer.render();
   }
 
