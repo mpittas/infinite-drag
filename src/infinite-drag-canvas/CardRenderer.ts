@@ -3,6 +3,7 @@ import type { Project } from "./types"; // Import the Project type
 
 export class CardRenderer {
   private static readonly BASE_TEXT_CANVAS_SIZE = 160; // Reduced size
+  private static imageCache: Map<string, HTMLImageElement> = new Map(); // Image cache
 
   private static drawRoundRect(
     ctx: CanvasRenderingContext2D,
@@ -29,7 +30,7 @@ export class CardRenderer {
   public static createCardTexture(
     project: Project, // Changed from cardIndex
     originalCardIndex: number, // Keep for fallback or unique ID if needed
-    backgroundColor: string | null
+    backgroundColor: string | null // This signals hover state for card background
   ): THREE.CanvasTexture {
     const baseTextCanvasSize = CardRenderer.BASE_TEXT_CANVAS_SIZE * 1.75;
     const dpr = window.devicePixelRatio || 1;
@@ -60,30 +61,109 @@ export class CardRenderer {
     const badgeBorderWidth = 0.1; // Pixel width for badge border (adjust as needed)
 
     // Colors
-    const imagePlaceholderColor = "#444444"; // Darker placeholder
-    const titleColor = "#F0F0F0"; // Brighter title
+    const imagePlaceholderColor = "#444444";
+    const titleColor = "#F0F0F0";
     const categoryTextColor = "#FFFFFF";
-    // categoryBadgeColor is not used for fill, border will be categoryTextColor
+
+    // Determine image overlay opacity based on hover state (inferred from backgroundColor)
+    const imageOverlayOpacity = backgroundColor === null ? 0.3 : 0.0; // 0.3 default, 0.0 on hover
 
     // 2. Image Placeholder (16:9 aspect ratio, 70% width, centered)
     const imagePlaceholderWidth = baseTextCanvasSize * 0.7;
     const imagePlaceholderHeight = imagePlaceholderWidth * (9 / 16);
     const imageX = (baseTextCanvasSize - imagePlaceholderWidth) / 2;
     const imageY =
-      (baseTextCanvasSize - imagePlaceholderHeight) / 2.5 + padding * 0.5; // Shift down slightly for title space
+      (baseTextCanvasSize - imagePlaceholderHeight) / 2.5 + padding * 0.5;
 
+    // Initially draw placeholder or background for image area
     ctx.fillStyle = imagePlaceholderColor;
     ctx.fillRect(imageX, imageY, imagePlaceholderWidth, imagePlaceholderHeight);
-
     ctx.fillStyle = "#777777";
     ctx.font = `bold ${baseTextCanvasSize * 0.12}px Arial`;
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
+    const placeholderText = "Loading..."; // Initial placeholder
     ctx.fillText(
-      "16:9",
+      placeholderText,
       imageX + imagePlaceholderWidth / 2,
       imageY + imagePlaceholderHeight / 2
     );
+
+    if (project.imageUrl) {
+      const cachedImage = CardRenderer.imageCache.get(project.imageUrl);
+
+      if (cachedImage && cachedImage.complete) {
+        // Image is cached and loaded, draw immediately
+        CardRenderer.drawImageOntoCanvas(
+          ctx,
+          cachedImage,
+          imageX,
+          imageY,
+          imagePlaceholderWidth,
+          imagePlaceholderHeight,
+          imagePlaceholderColor,
+          imageOverlayOpacity
+        );
+      } else {
+        // Image not cached or not yet loaded, start loading
+        const img = new Image();
+        img.crossOrigin = "Anonymous";
+        img.onload = () => {
+          CardRenderer.imageCache.set(project.imageUrl!, img);
+          CardRenderer.drawImageOntoCanvas(
+            ctx,
+            img,
+            imageX,
+            imageY,
+            imagePlaceholderWidth,
+            imagePlaceholderHeight,
+            imagePlaceholderColor,
+            imageOverlayOpacity
+          );
+          texture.needsUpdate = true;
+        };
+        img.onerror = () => {
+          // Draw error placeholder
+          ctx.fillStyle = imagePlaceholderColor;
+          ctx.fillRect(
+            imageX,
+            imageY,
+            imagePlaceholderWidth,
+            imagePlaceholderHeight
+          );
+          ctx.fillStyle = "#AA5555";
+          ctx.font = `bold ${baseTextCanvasSize * 0.1}px Arial`;
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+          ctx.fillText(
+            "Error",
+            imageX + imagePlaceholderWidth / 2,
+            imageY + imagePlaceholderHeight / 2
+          );
+          texture.needsUpdate = true;
+        };
+        img.src = project.imageUrl;
+      }
+    } else {
+      // No image URL, draw "No Image" placeholder
+      ctx.fillStyle = imagePlaceholderColor;
+      ctx.fillRect(
+        imageX,
+        imageY,
+        imagePlaceholderWidth,
+        imagePlaceholderHeight
+      );
+      ctx.fillStyle = "#777777";
+      ctx.font = `bold ${baseTextCanvasSize * 0.1}px Arial`;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(
+        "No Image",
+        imageX + imagePlaceholderWidth / 2,
+        imageY + imagePlaceholderHeight / 2
+      );
+      // texture.needsUpdate = true; // Only if you draw something new here
+    }
 
     // 3. Title (Top-right, Uppercase)
     ctx.fillStyle = titleColor;
@@ -149,5 +229,45 @@ export class CardRenderer {
     const texture = new THREE.CanvasTexture(canvas);
     texture.needsUpdate = true;
     return texture;
+  }
+
+  // Helper to encapsulate drawing logic for reuse
+  private static drawImageOntoCanvas(
+    ctx: CanvasRenderingContext2D,
+    img: HTMLImageElement,
+    imageX: number,
+    imageY: number,
+    placeholderWidth: number,
+    placeholderHeight: number,
+    placeholderBgColor: string,
+    overlayOpacity: number // Added parameter for dynamic opacity
+  ): void {
+    // Clear placeholder area before drawing image
+    ctx.fillStyle = placeholderBgColor;
+    ctx.fillRect(imageX, imageY, placeholderWidth, placeholderHeight);
+
+    const imgAspectRatio = img.width / img.height;
+    const placeholderAspectRatio = placeholderWidth / placeholderHeight;
+    let drawWidth, drawHeight, drawX, drawY;
+
+    if (imgAspectRatio > placeholderAspectRatio) {
+      drawHeight = placeholderHeight;
+      drawWidth = drawHeight * imgAspectRatio;
+      drawX = imageX - (drawWidth - placeholderWidth) / 2;
+      drawY = imageY;
+    } else {
+      drawWidth = placeholderWidth;
+      drawHeight = drawWidth / imgAspectRatio;
+      drawX = imageX;
+      drawY = imageY - (drawHeight - placeholderHeight) / 2;
+    }
+    ctx.drawImage(img, drawX, drawY, drawWidth, drawHeight);
+
+    // Add dark overlay on top of the image with dynamic opacity
+    if (overlayOpacity > 0) {
+      // Only draw if opacity is greater than 0
+      ctx.fillStyle = `rgba(0, 0, 0, ${overlayOpacity})`;
+      ctx.fillRect(imageX, imageY, placeholderWidth, placeholderHeight);
+    }
   }
 }
