@@ -108,7 +108,7 @@ export class InfiniteDragCanvas {
     cardIndex: number,
     backgroundColor: string | null
   ): THREE.CanvasTexture {
-    const baseTextCanvasSize = 260;
+    const baseTextCanvasSize = 200;
     const dpr = window.devicePixelRatio || 1;
     const actualCanvasSize = baseTextCanvasSize * dpr;
 
@@ -133,7 +133,7 @@ export class InfiniteDragCanvas {
     }
 
     ctx.strokeStyle = "#555555";
-    ctx.lineWidth = 1;
+    ctx.lineWidth = 0.1;
     ctx.strokeRect(0.5, 0.5, baseTextCanvasSize - 1, baseTextCanvasSize - 1);
 
     ctx.fillStyle = "#cccccc";
