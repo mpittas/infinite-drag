@@ -10,10 +10,10 @@ import type {
   UniqueCardDataItem,
   // Project, // Removed as it's no longer directly used here
 } from "@/types/types";
-import { WarpShader } from "@/infinite-drag-canvas/WarpShader"; // Import WarpShader
-import { CardRenderer } from "@/infinite-drag-canvas/CardRenderer"; // Import the new CardRenderer
-import { VignetteShader } from "@/infinite-drag-canvas/VignetteShader"; // Import VignetteShader
-import { projects } from "@/data/projectData"; // Import projects from the new file
+import { WarpShader } from "./WarpShader"; // Import WarpShader
+import { CardRenderer } from "./CardRenderer"; // Import the new CardRenderer
+import { VignetteShader } from "./VignetteShader"; // Import VignetteShader
+import { projects } from "../data/projectData"; // Import projects from the new file
 
 // Card interface removed (now in ./types)
 // WarpShader object removed (now in ./WarpShader)
