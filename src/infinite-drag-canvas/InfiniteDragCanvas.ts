@@ -9,11 +9,11 @@ import type {
   GridConfig,
   UniqueCardDataItem,
   // Project, // Removed as it's no longer directly used here
-} from "./types";
-import { WarpShader } from "./WarpShader"; // Import WarpShader
-import { CardRenderer } from "./CardRenderer"; // Import the new CardRenderer
-import { VignetteShader } from "./VignetteShader"; // Import VignetteShader
-import { projects } from "./projectData"; // Import projects from the new file
+} from "@/types/types";
+import { WarpShader } from "@/infinite-drag-canvas/WarpShader"; // Import WarpShader
+import { CardRenderer } from "@/infinite-drag-canvas/CardRenderer"; // Import the new CardRenderer
+import { VignetteShader } from "@/infinite-drag-canvas/VignetteShader"; // Import VignetteShader
+import { projects } from "@/data/projectData"; // Import projects from the new file
 
 // Card interface removed (now in ./types)
 // WarpShader object removed (now in ./WarpShader)
@@ -180,6 +180,41 @@ export class InfiniteDragCanvas {
           const cardClone = new THREE.Mesh(geometry, material) as Card;
           cardClone.cardIndex = data.cardIndex;
           cardClone.position.set(data.localX, data.localY, 0);
+
+          // Create and add overlay mesh
+          const overlayGeo = new THREE.PlaneGeometry(
+            this.gridConfig.imageSize * 0.7, // Match image placeholder width
+            this.gridConfig.imageSize * 0.7 * (9 / 16) // Match image placeholder height (16:9)
+          );
+          const overlayMat = new THREE.MeshBasicMaterial({
+            color: 0x000000,
+            opacity: 0.3,
+            transparent: true,
+          });
+          const overlayMesh = new THREE.Mesh(overlayGeo, overlayMat);
+
+          // Calculate the Y offset for the overlay to match the image placeholder's position on the texture
+          // Values from CardRenderer.ts (or should be passed/derived if dynamic):
+          const baseTextCanvasSize_renderer = 160 * 1.75; // From CardRenderer
+          const padding_renderer = baseTextCanvasSize_renderer * 0.06;
+          const imagePlaceholderWidth_tex = baseTextCanvasSize_renderer * 0.7;
+          const imagePlaceholderHeight_tex =
+            imagePlaceholderWidth_tex * (9 / 16);
+          const imageY_tex_top =
+            (baseTextCanvasSize_renderer - imagePlaceholderHeight_tex) / 2.5 +
+            padding_renderer * 0.5;
+          const placeholderCenterY_tex =
+            imageY_tex_top + imagePlaceholderHeight_tex / 2;
+          const textureCenterY_tex = baseTextCanvasSize_renderer / 2;
+          const offsetY_tex_from_center =
+            placeholderCenterY_tex - textureCenterY_tex; // -ve if placeholder is above center
+          const scaleFactor =
+            this.gridConfig.imageSize / baseTextCanvasSize_renderer;
+          const overlayYOffset_world = -offsetY_tex_from_center * scaleFactor; // Apply inverse for 3D Y-up
+
+          overlayMesh.position.set(0, overlayYOffset_world, 0.1);
+          cardClone.add(overlayMesh);
+          cardClone.overlayMaterial = overlayMat; // Store reference to the material
 
           tileGroup.add(cardClone);
           this.images.push(cardClone); // For raycasting all visible cards
@@ -469,8 +504,12 @@ export class InfiniteDragCanvas {
 
   private handleHover(event: PointerEvent): void {
     if (this.isDragging) {
-      if (this.hoveredCard) {
-        this.updateCardTexture(this.hoveredCard, null); // Reset old hovered card
+      if (this.hoveredCard && this.hoveredCard.overlayMaterial) {
+        gsap.to(this.hoveredCard.overlayMaterial, {
+          opacity: 0.3,
+          duration: 0.1,
+        }); // Reset quickly
+        this.updateCardTexture(this.hoveredCard, null);
         this.hoveredCard = null;
       }
       return;
@@ -485,15 +524,40 @@ export class InfiniteDragCanvas {
     let newHoveredCard: Card | null = null;
     if (intersects.length > 0) {
       const firstIntersect = intersects[0].object as Card;
-      if (firstIntersect.cardIndex !== undefined) {
+      // Check if it's a main card (not an overlay mesh if overlays were also in intersectObjects)
+      if (firstIntersect.isMesh && firstIntersect.cardIndex !== undefined) {
         newHoveredCard = firstIntersect;
+      } else if (
+        firstIntersect.parent &&
+        (firstIntersect.parent as Card).cardIndex !== undefined
+      ) {
+        // If we intersected an overlay, get its parent card
+        newHoveredCard = firstIntersect.parent as Card;
       }
     }
 
     if (this.hoveredCard !== newHoveredCard) {
-      this.updateCardTexture(this.hoveredCard, null); // Reset old one
+      // Unhover previous card
+      if (this.hoveredCard) {
+        this.updateCardTexture(this.hoveredCard, null);
+        if (this.hoveredCard.overlayMaterial) {
+          gsap.to(this.hoveredCard.overlayMaterial, {
+            opacity: 0.3,
+            duration: 0.3,
+          });
+        }
+      }
+      // Hover new card
       this.hoveredCard = newHoveredCard;
-      this.updateCardTexture(this.hoveredCard, "#111"); // Highlight new one
+      if (this.hoveredCard) {
+        this.updateCardTexture(this.hoveredCard, "#111");
+        if (this.hoveredCard.overlayMaterial) {
+          gsap.to(this.hoveredCard.overlayMaterial, {
+            opacity: 0.0,
+            duration: 0.3,
+          });
+        }
+      }
     }
   }
 

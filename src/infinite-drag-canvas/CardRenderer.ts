@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import type { Project } from "./types"; // Import the Project type
+import type { Project } from "@/types/types"; // Import the Project type
 
 export class CardRenderer {
   private static readonly BASE_TEXT_CANVAS_SIZE = 160; // Reduced size
@@ -65,10 +65,7 @@ export class CardRenderer {
     const titleColor = "#F0F0F0";
     const categoryTextColor = "#FFFFFF";
 
-    // Determine image overlay opacity based on hover state (inferred from backgroundColor)
-    const imageOverlayOpacity = backgroundColor === null ? 0.3 : 0.0; // 0.3 default, 0.0 on hover
-
-    // 2. Image Placeholder (16:9 aspect ratio, 70% width, centered)
+    // 2. Image Placeholder & Actual Image
     const imagePlaceholderWidth = baseTextCanvasSize * 0.7;
     const imagePlaceholderHeight = imagePlaceholderWidth * (9 / 16);
     const imageX = (baseTextCanvasSize - imagePlaceholderWidth) / 2;
@@ -101,8 +98,7 @@ export class CardRenderer {
           imageY,
           imagePlaceholderWidth,
           imagePlaceholderHeight,
-          imagePlaceholderColor,
-          imageOverlayOpacity
+          imagePlaceholderColor
         );
       } else {
         // Image not cached or not yet loaded, start loading
@@ -117,8 +113,7 @@ export class CardRenderer {
             imageY,
             imagePlaceholderWidth,
             imagePlaceholderHeight,
-            imagePlaceholderColor,
-            imageOverlayOpacity
+            imagePlaceholderColor
           );
           texture.needsUpdate = true;
         };
@@ -239,10 +234,8 @@ export class CardRenderer {
     imageY: number,
     placeholderWidth: number,
     placeholderHeight: number,
-    placeholderBgColor: string,
-    overlayOpacity: number // Added parameter for dynamic opacity
+    placeholderBgColor: string
   ): void {
-    // Clear placeholder area before drawing image
     ctx.fillStyle = placeholderBgColor;
     ctx.fillRect(imageX, imageY, placeholderWidth, placeholderHeight);
 
@@ -262,12 +255,5 @@ export class CardRenderer {
       drawY = imageY - (drawHeight - placeholderHeight) / 2;
     }
     ctx.drawImage(img, drawX, drawY, drawWidth, drawHeight);
-
-    // Add dark overlay on top of the image with dynamic opacity
-    if (overlayOpacity > 0) {
-      // Only draw if opacity is greater than 0
-      ctx.fillStyle = `rgba(0, 0, 0, ${overlayOpacity})`;
-      ctx.fillRect(imageX, imageY, placeholderWidth, placeholderHeight);
-    }
   }
 }
