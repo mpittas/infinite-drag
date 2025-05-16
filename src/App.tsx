@@ -1,6 +1,9 @@
 import { useState } from "react";
 import "./App.css";
 import CanvasDisplay from "./CanvasDisplay";
+import ProjectListItem from "./ProjectListItem";
+import { projects } from "./data/projectData";
+import type { Project } from "@/types/types";
 
 type Screen = "canvas" | "hello";
 
@@ -39,15 +42,30 @@ function App() {
           disabled={currentScreen === "hello"}
           style={{ margin: "0 5px" }}
         >
-          Show Hello World
+          Show Hello World (Projects)
         </button>
       </nav>
 
       <div className="screen-content">
         <CanvasDisplay isVisible={currentScreen === "canvas"} />
         {currentScreen === "hello" && (
-          <div style={{ textAlign: "center", paddingTop: navHeight }}>
-            <h1>Hello World</h1>
+          <div
+            style={{
+              textAlign: "center",
+              paddingTop: navHeight,
+              paddingBottom: "20px",
+            }}
+          >
+            <h1>Project List</h1>
+            {projects.length > 0 ? (
+              <ul style={{ padding: 0, margin: "0 auto", maxWidth: "800px" }}>
+                {projects.map((project: Project) => (
+                  <ProjectListItem key={project.id} project={project} />
+                ))}
+              </ul>
+            ) : (
+              <p>No projects to display.</p>
+            )}
           </div>
         )}
       </div>
