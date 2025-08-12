@@ -36,12 +36,12 @@ export class InfiniteDragCanvas {
   private gridCurrentOffset = new THREE.Vector2(0, 0); // Controls tileGridRoot.position
   private gridTargetOffset = new THREE.Vector2(0, 0); // Target for tileGridRoot.position
   private previousGridCurrentOffset = new THREE.Vector2(0, 0); // For calculating delta move of tileGridRoot
-  private smoothingFactor = 0.5;
+  private smoothingFactor = 0.4;
 
   private velocity: Vector2Like = { x: 0, y: 0 };
   private currentDampingFactor = 0.85; // Dynamically adjusted damping for momentum
   private minVelocity = 0.05;
-  private dragMultiplier = 0.5; // User set, was 2.0, then 1.35
+  private dragMultiplier = 0.2; // Lower sensitivity so drag moves less per pixel
   private currentMomentumDistanceMultiplier = 4.0; // Dynamically set in onPointerUp
 
   private raycaster = new THREE.Raycaster();
@@ -252,10 +252,10 @@ export class InfiniteDragCanvas {
     const mediumSpeedThreshold = 20.0; // Upper limit for a "medium" release
     const fastSpeedThreshold = 50.0; // Upper limit for "fast" release, above is "very fast"
 
-    const minCoastingDampingFactor = 0.92;
-    const slowSpeedDamping = 0.94;
-    const mediumSpeedDamping = 0.96;
-    const fastSpeedDamping = 0.96; // Kept from previous adjustment
+    const minCoastingDampingFactor = 0.9; // Increase damping overall for shorter coasts
+    const slowSpeedDamping = 0.93;
+    const mediumSpeedDamping = 0.95;
+    const fastSpeedDamping = 0.95;
 
     if (releaseSpeed < epsilonSpeed) {
       this.currentDampingFactor = minCoastingDampingFactor;
@@ -293,9 +293,9 @@ export class InfiniteDragCanvas {
     );
 
     // --- Momentum Distance Multiplier Logic (controls speed/distance of coast) ---
-    const lowSpeedMomentumMult = 4.0;
-    const midSpeedMomentumMult = 3.0;
-    const highSpeedMomentumMult = 2.0;
+    const lowSpeedMomentumMult = 2.0; // Reduce coast distance across the board
+    const midSpeedMomentumMult = 1.2;
+    const highSpeedMomentumMult = 0.8;
 
     if (releaseSpeed < epsilonSpeed) {
       this.currentMomentumDistanceMultiplier = lowSpeedMomentumMult;
@@ -395,7 +395,7 @@ export class InfiniteDragCanvas {
       );
 
       const fastDragThreshold = 25; // Pixels per pointer event for a "fast" drag
-      const highSpeedSmoothingFactor = 0.75; // More responsive smoothing for fast drags
+      const highSpeedSmoothingFactor = 0.6; // Keep some responsiveness but avoid big jumps
 
       if (currentDragSpeed > fastDragThreshold) {
         currentActiveSmoothingFactor = highSpeedSmoothingFactor;
