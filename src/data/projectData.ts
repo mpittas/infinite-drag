@@ -49,7 +49,4 @@ export const projects: Project[] = [
     categories: ["Music", "Events"],
     imageUrl: "https://picsum.photos/seed/proj8/320/180",
   },
-  // Add more projects as needed to ensure enough unique content for your grid.
-  // If your grid is 4 rows x 7 columns = 28 cards per tile segment,
-  // having at least 28 projects here would be ideal to avoid immediate visual repetition.
 ];

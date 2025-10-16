@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { gsap } from "gsap"; // Import GSAP
+import { gsap } from "gsap";
 import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer.js";
 import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
 import { ShaderPass } from "three/examples/jsm/postprocessing/ShaderPass.js";
@@ -8,52 +8,46 @@ import type {
   Vector2Like,
   GridConfig,
   UniqueCardDataItem,
-  // Project // Removed as it's no longer directly used here
 } from "@/types/types";
-import { WarpShader } from "./WarpShader"; // Import WarpShader
-import { CardRenderer } from "./CardRenderer"; // Import the new CardRenderer
-import { VignetteShader } from "./VignetteShader"; // Import VignetteShader
-import { projects } from "../data/projectData"; // Import projects from the new file
-
-// Card interface removed (now in ./types)
-// WarpShader object removed (now in ./WarpShader)
+import { WarpShader } from "./WarpShader";
+import { CardRenderer } from "./CardRenderer";
+import { VignetteShader } from "./VignetteShader";
+import { projects } from "../data/projectData";
 
 export class InfiniteDragCanvas {
-  // private projects: Project[] = [ ... ]; // This line will be removed
-
   private scene!: THREE.Scene;
   private camera!: THREE.PerspectiveCamera;
   private renderer!: THREE.WebGLRenderer;
   private container: HTMLElement;
   private composer!: EffectComposer;
   private warpPass!: ShaderPass;
-  private vignettePass!: ShaderPass; // Add VignettePass property
+  private vignettePass!: ShaderPass;
 
   private initialCameraZ!: number;
   private zoomedOutCameraZ!: number;
 
-  private tileGridRoot = new THREE.Group(); // This will hold all 9 tiles and be moved
-  private gridCurrentOffset = new THREE.Vector2(0, 0); // Controls tileGridRoot.position
-  private gridTargetOffset = new THREE.Vector2(0, 0); // Target for tileGridRoot.position
-  private previousGridCurrentOffset = new THREE.Vector2(0, 0); // For calculating delta move of tileGridRoot
+  private tileGridRoot = new THREE.Group();
+  private gridCurrentOffset = new THREE.Vector2(0, 0);
+  private gridTargetOffset = new THREE.Vector2(0, 0);
+  private previousGridCurrentOffset = new THREE.Vector2(0, 0);
   private smoothingFactor = 0.4;
 
   private velocity: Vector2Like = { x: 0, y: 0 };
-  private currentDampingFactor = 0.85; // Dynamically adjusted damping for momentum
+  private currentDampingFactor = 0.85;
   private minVelocity = 0.05;
-  private dragMultiplier = 0.2; // Lower sensitivity so drag moves less per pixel
-  private currentMomentumDistanceMultiplier = 4.0; // Dynamically set in onPointerUp
+  private dragMultiplier = 0.2;
+  private currentMomentumDistanceMultiplier = 4.0;
 
   private raycaster = new THREE.Raycaster();
   private mouse = new THREE.Vector2();
   private hoveredCard: Card | null = null;
 
-  private images: Card[] = []; // Will store all 252 cloned card meshes
+  private images: Card[] = [];
   private gridConfig: GridConfig = {
     rows: 4,
     cols: 7,
     imageSize: 200,
-    spacing: 0, // No space between items
+    spacing: 0,
     gridWidth: 0,
     gridHeight: 0,
   };
@@ -76,14 +70,14 @@ export class InfiniteDragCanvas {
 
   private initScene(): void {
     this.scene = new THREE.Scene();
-    this.scene.background = new THREE.Color(0x1a1a1a); // Dark gray background
+    this.scene.background = new THREE.Color(0x1a1a1a);
 
     const aspect = this.container.clientWidth / this.container.clientHeight;
     this.camera = new THREE.PerspectiveCamera(70, aspect, 0.1, 1000);
-    this.camera.position.set(0, 0, 400); // Reduced Z to show fewer columns
+    this.camera.position.set(0, 0, 400);
 
     this.initialCameraZ = this.camera.position.z;
-    this.zoomedOutCameraZ = this.initialCameraZ * 1.25; // Reduced from 1.5 to zoom out less
+    this.zoomedOutCameraZ = this.initialCameraZ * 1.25;
 
     this.renderer = new THREE.WebGLRenderer({ antialias: true });
     this.renderer.setSize(
@@ -92,9 +86,8 @@ export class InfiniteDragCanvas {
     );
     this.container.appendChild(this.renderer.domElement);
 
-    this.scene.add(this.tileGridRoot); // Add the main root for tiles to the scene
+    this.scene.add(this.tileGridRoot);
 
-    // Initialize Post-Processing
     this.initPostProcessing();
   }
 
@@ -108,13 +101,12 @@ export class InfiniteDragCanvas {
     this.vignettePass = new ShaderPass(VignetteShader);
     this.vignettePass.uniforms["aspectRatio"].value =
       this.container.clientWidth / this.container.clientHeight;
-    // this.vignettePass.renderToScreen = false; // Default, ensure it doesn't override warpPass
     this.composer.addPass(this.vignettePass);
 
     this.warpPass = new ShaderPass(WarpShader);
     this.warpPass.uniforms["aspectRatio"].value =
       this.container.clientWidth / this.container.clientHeight;
-    this.warpPass.renderToScreen = true; // Ensure this is the last pass that renders to screen
+    this.warpPass.renderToScreen = true;
     this.composer.addPass(this.warpPass);
   }
 
@@ -123,20 +115,17 @@ export class InfiniteDragCanvas {
     const tileWidth = cols * imageSize;
     const tileHeight = rows * imageSize;
 
-    // Clear previous images if any (e.g., on a hot reload or recreation)
     this.images.forEach((image) => {
       if (image.geometry) image.geometry.dispose();
       if (image.material && image.material.map)
         (image.material.map as THREE.CanvasTexture).dispose();
       if (image.material) image.material.dispose();
-      // this.scene.remove(image); // Cards are now added to tileGroups, then tileGridRoot
     });
     this.images = [];
     while (this.tileGridRoot.children.length > 0) {
       this.tileGridRoot.remove(this.tileGridRoot.children[0]);
     }
 
-    // Define the 28 unique cards' local positions once
     const uniqueCardData: UniqueCardDataItem[] = [];
     for (let r = 0; r < rows; r++) {
       for (let c = 0; c < cols; c++) {
@@ -147,22 +136,17 @@ export class InfiniteDragCanvas {
       }
     }
 
-    // Create a 3x3 grid of tiles
     for (let tileRow = -1; tileRow <= 1; tileRow++) {
-      // -1 (top), 0 (middle), 1 (bottom)
       for (let tileCol = -1; tileCol <= 1; tileCol++) {
-        // -1 (left), 0 (center), 1 (right)
         const tileGroup = new THREE.Group();
-        tileGroup.position.set(tileCol * tileWidth, -tileRow * tileHeight, 0); // Note: -tileRow for Y up
+        tileGroup.position.set(tileCol * tileWidth, -tileRow * tileHeight, 0);
 
         uniqueCardData.forEach((data) => {
-          // Get the project for the current card index, cycling through the projects array
           const project = projects[data.cardIndex % projects.length];
           if (!project) {
             console.warn(
               `No project data found for cardIndex ${data.cardIndex}`
             );
-            // Potentially use a default placeholder project or skip
             return;
           }
 
@@ -182,7 +166,7 @@ export class InfiniteDragCanvas {
           cardClone.position.set(data.localX, data.localY, 0);
 
           tileGroup.add(cardClone);
-          this.images.push(cardClone); // For raycasting all visible cards
+          this.images.push(cardClone);
         });
         this.tileGridRoot.add(tileGroup);
       }
@@ -202,8 +186,7 @@ export class InfiniteDragCanvas {
     this.container.addEventListener(
       "pointerleave",
       this.onPointerUp.bind(this)
-    ); // Stop dragging if pointer leaves container
-    // Add new listener for hover effects if not dragging (also on pointermove)
+    );
     this.container.addEventListener("pointermove", this.handleHover.bind(this));
     window.addEventListener("resize", this.onWindowResize.bind(this));
   }
@@ -215,13 +198,11 @@ export class InfiniteDragCanvas {
     this.previousMouse.y = event.clientY;
     this.container.style.cursor = "grabbing";
 
-    // Snap target to current to avoid jump if a previous momentum was ongoing
     this.gridTargetOffset.copy(this.gridCurrentOffset);
 
-    // Zoom out camera
     gsap.to(this.camera.position, {
       z: this.zoomedOutCameraZ,
-      duration: 0.15, // Reduced from 0.5 for faster zoom
+      duration: 0.15,
       ease: "power2.out",
     });
   }
@@ -245,8 +226,6 @@ export class InfiniteDragCanvas {
     const releaseSpeed = Math.sqrt(
       this.velocity.x * this.velocity.x + this.velocity.y * this.velocity.y
     );
-
-    // --- Damping Factor Logic (controls duration of coast) ---
     const epsilonSpeed = 0.01; // Threshold for very slow movements
     const slowSpeedThreshold = 5.0; // Upper limit for a "slow" release
     const mediumSpeedThreshold = 20.0; // Upper limit for a "medium" release
@@ -292,7 +271,6 @@ export class InfiniteDragCanvas {
       Math.min(this.currentDampingFactor, 0.99)
     );
 
-    // --- Momentum Distance Multiplier Logic (controls speed/distance of coast) ---
     const lowSpeedMomentumMult = 2.0; // Reduce coast distance across the board
     const midSpeedMomentumMult = 1.2;
     const highSpeedMomentumMult = 0.8;
@@ -325,7 +303,6 @@ export class InfiniteDragCanvas {
       duration: 0.35, // Reduced from 0.5 for faster zoom
       ease: "power2.out",
       onUpdate: () => {
-        // Ensure wrapping logic keeps up during zoom animation
         this.wrapCards();
       },
     });
@@ -366,7 +343,6 @@ export class InfiniteDragCanvas {
   private animate(): void {
     requestAnimationFrame(this.animate.bind(this));
 
-    // Momentum logic for when not dragging
     if (
       !this.isDragging &&
       (Math.abs(this.velocity.x) > this.minVelocity ||
@@ -377,7 +353,6 @@ export class InfiniteDragCanvas {
       this.gridTargetOffset.y -=
         this.velocity.y * this.currentMomentumDistanceMultiplier;
 
-      // Use the dynamically calculated damping factor
       this.velocity.x *= this.currentDampingFactor;
       this.velocity.y *= this.currentDampingFactor;
 
@@ -385,17 +360,15 @@ export class InfiniteDragCanvas {
       if (Math.abs(this.velocity.y) <= this.minVelocity) this.velocity.y = 0;
     }
 
-    // Determine smoothing factor (adaptive if dragging fast)
-    let currentActiveSmoothingFactor = this.smoothingFactor; // Base smoothing factor (user set to 0.5)
+    let currentActiveSmoothingFactor = this.smoothingFactor;
 
     if (this.isDragging) {
-      // this.velocity stores the {rawDeltaX, rawDeltaY} from the last onPointerMove event
       const currentDragSpeed = Math.sqrt(
         this.velocity.x * this.velocity.x + this.velocity.y * this.velocity.y
       );
 
-      const fastDragThreshold = 25; // Pixels per pointer event for a "fast" drag
-      const highSpeedSmoothingFactor = 0.6; // Keep some responsiveness but avoid big jumps
+      const fastDragThreshold = 25;
+      const highSpeedSmoothingFactor = 0.6;
 
       if (currentDragSpeed > fastDragThreshold) {
         currentActiveSmoothingFactor = highSpeedSmoothingFactor;
@@ -412,14 +385,13 @@ export class InfiniteDragCanvas {
     const deltaMoveY =
       this.gridCurrentOffset.y - this.previousGridCurrentOffset.y;
 
-    // Move the entire tileGridRoot
     if (Math.abs(deltaMoveX) > 0.001 || Math.abs(deltaMoveY) > 0.001) {
       this.tileGridRoot.position.x += deltaMoveX;
       this.tileGridRoot.position.y += deltaMoveY;
     }
     this.previousGridCurrentOffset.copy(this.gridCurrentOffset);
 
-    this.wrapCards(); // This now wraps tileGridRoot.position
+    this.wrapCards();
     this.composer.render();
   }
 
@@ -430,14 +402,12 @@ export class InfiniteDragCanvas {
     this.camera.aspect = newWidth / newHeight;
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(newWidth, newHeight);
-    this.composer.setSize(newWidth, newHeight); // Resize composer
+    this.composer.setSize(newWidth, newHeight);
 
     if (this.warpPass) {
-      // Update shader aspect ratio
       this.warpPass.uniforms["aspectRatio"].value = newWidth / newHeight;
     }
     if (this.vignettePass) {
-      // Update vignette shader aspect ratio
       this.vignettePass.uniforms["aspectRatio"].value = newWidth / newHeight;
     }
   }
@@ -562,9 +532,5 @@ export class InfiniteDragCanvas {
         );
       }
     }
-    // Note: EffectComposer and ShaderPass don't have explicit dispose methods in the same way as materials/geometries.
-    // The main thing is to stop rendering them and allow GC to collect if they are no longer referenced.
-    // If ShaderPass creates internal textures or framebuffers not managed by EffectComposer, they might need disposal.
-    // However, for standard ShaderPass usage, this is generally handled.
   }
 }

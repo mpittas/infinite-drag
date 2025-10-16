@@ -1,9 +1,9 @@
 import * as THREE from "three";
-import type { Project } from "@/types/types"; // Import the Project type
+import type { Project } from "@/types/types";
 
 export class CardRenderer {
-  private static readonly BASE_TEXT_CANVAS_SIZE = 160; // Reduced size
-  private static imageCache: Map<string, HTMLImageElement> = new Map(); // Image cache
+  private static readonly BASE_TEXT_CANVAS_SIZE = 160;
+  private static imageCache: Map<string, HTMLImageElement> = new Map();
 
   private static drawRoundRect(
     ctx: CanvasRenderingContext2D,
@@ -24,13 +24,12 @@ export class CardRenderer {
     ctx.lineTo(x, y + radius);
     ctx.quadraticCurveTo(x, y, x + radius, y);
     ctx.closePath();
-    // Removed ctx.fill(); -- Caller will fill or stroke
   }
 
   public static createCardTexture(
-    project: Project, // Changed from cardIndex
-    originalCardIndex: number, // Keep for fallback or unique ID if needed
-    backgroundColor: string | null // This signals hover state for card background
+    project: Project,
+    originalCardIndex: number,
+    backgroundColor: string | null
   ): THREE.CanvasTexture {
     const baseTextCanvasSize = CardRenderer.BASE_TEXT_CANVAS_SIZE * 1.75;
     const dpr = window.devicePixelRatio || 1;
@@ -48,38 +47,32 @@ export class CardRenderer {
 
     ctx.scale(dpr, dpr);
 
-    // 1. Overall Card Background (Dark Black)
-    ctx.fillStyle = backgroundColor || "#0A0A0A"; // Dark black background
+    ctx.fillStyle = backgroundColor || "#0A0A0A";
     ctx.fillRect(0, 0, baseTextCanvasSize, baseTextCanvasSize);
 
-    // Layout constants (will scale with baseTextCanvasSize)
     const padding = baseTextCanvasSize * 0.06;
-    const titleFontSize = baseTextCanvasSize * 0.025; // Keeping user's font size
-    const categoryFontSize = baseTextCanvasSize * 0.023; // Keeping user's font size
+    const titleFontSize = baseTextCanvasSize * 0.025;
+    const categoryFontSize = baseTextCanvasSize * 0.023;
     const badgeHeight = categoryFontSize + padding * 0.3;
     const badgePaddingHorizontal = baseTextCanvasSize * 0.03;
-    const badgeBorderWidth = 0.1; // Pixel width for badge border (adjust as needed)
+    const badgeBorderWidth = 0.1;
 
-    // Colors
     const imagePlaceholderColor = "#444444";
     const titleColor = "#F0F0F0";
     const categoryTextColor = "#FFFFFF";
-
-    // 2. Image Placeholder & Actual Image
     const imagePlaceholderWidth = baseTextCanvasSize * 0.7;
     const imagePlaceholderHeight = imagePlaceholderWidth * (9 / 16);
     const imageX = (baseTextCanvasSize - imagePlaceholderWidth) / 2;
     const imageY =
       (baseTextCanvasSize - imagePlaceholderHeight) / 2.5 + padding * 0.5;
 
-    // Initially draw placeholder or background for image area
     ctx.fillStyle = imagePlaceholderColor;
     ctx.fillRect(imageX, imageY, imagePlaceholderWidth, imagePlaceholderHeight);
     ctx.fillStyle = "#777777";
     ctx.font = `bold ${baseTextCanvasSize * 0.12}px Arial`;
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    const placeholderText = "Loading..."; // Initial placeholder
+    const placeholderText = "Loading...";
     ctx.fillText(
       placeholderText,
       imageX + imagePlaceholderWidth / 2,
@@ -90,7 +83,6 @@ export class CardRenderer {
       const cachedImage = CardRenderer.imageCache.get(project.imageUrl);
 
       if (cachedImage && cachedImage.complete) {
-        // Image is cached and loaded, draw immediately
         CardRenderer.drawImageOntoCanvas(
           ctx,
           cachedImage,
@@ -101,7 +93,6 @@ export class CardRenderer {
           imagePlaceholderColor
         );
       } else {
-        // Image not cached or not yet loaded, start loading
         const img = new Image();
         img.crossOrigin = "Anonymous";
         img.onload = () => {
@@ -118,7 +109,6 @@ export class CardRenderer {
           texture.needsUpdate = true;
         };
         img.onerror = () => {
-          // Draw error placeholder
           ctx.fillStyle = imagePlaceholderColor;
           ctx.fillRect(
             imageX,
@@ -140,7 +130,6 @@ export class CardRenderer {
         img.src = project.imageUrl;
       }
     } else {
-      // No image URL, draw "No Image" placeholder
       ctx.fillStyle = imagePlaceholderColor;
       ctx.fillRect(
         imageX,
@@ -157,26 +146,21 @@ export class CardRenderer {
         imageX + imagePlaceholderWidth / 2,
         imageY + imagePlaceholderHeight / 2
       );
-      // texture.needsUpdate = true; // Only if you draw something new here
     }
-
-    // 3. Title (Top-right, Uppercase)
     ctx.fillStyle = titleColor;
     ctx.font = `bold ${titleFontSize}px Arial`;
     ctx.textAlign = "right";
     ctx.textBaseline = "top";
-    // Use project title, fallback to original card index
     const displayTitle = (
       project.title || `Project ${originalCardIndex + 1}`
     ).toUpperCase();
     ctx.fillText(displayTitle, baseTextCanvasSize - padding, padding * 0.5);
 
-    // 4. Category Badges (Bottom, pill-shaped, transparent with white border & text)
     const categories =
-      project.categories.length > 0 ? project.categories : ["N/A"]; // Use project categories, fallback
+      project.categories.length > 0 ? project.categories : ["N/A"];
     let currentBadgeX = padding;
     const badgeY = baseTextCanvasSize - padding / 2 - badgeHeight;
-    const badgeRadius = badgeHeight / 1.6; // Pill shape
+    const badgeRadius = badgeHeight / 1.6;
 
     ctx.font = `normal ${categoryFontSize}px Arial`;
     ctx.textBaseline = "middle";
@@ -186,7 +170,6 @@ export class CardRenderer {
       const badgeWidth = textMetrics.width + badgePaddingHorizontal * 2;
 
       if (currentBadgeX + badgeWidth < baseTextCanvasSize - padding) {
-        // Draw badge border (pill shape)
         ctx.strokeStyle = categoryTextColor;
         ctx.lineWidth = badgeBorderWidth;
         CardRenderer.drawRoundRect(
@@ -199,20 +182,18 @@ export class CardRenderer {
         );
         ctx.stroke();
 
-        // Draw badge text
         ctx.fillStyle = categoryTextColor;
         ctx.textAlign = "center";
         ctx.fillText(
           category.toUpperCase(),
           currentBadgeX + badgeWidth / 2,
-          badgeY + badgeHeight / 2 + badgeBorderWidth / 2 // slight offset for text baseline with border
+          badgeY + badgeHeight / 2 + badgeBorderWidth / 2
         );
-        currentBadgeX += badgeWidth + padding / 4; // Reduced spacing between badges
+        currentBadgeX += badgeWidth + padding / 4;
       }
     });
 
-    // 5. Outer Border (Subtle)
-    ctx.strokeStyle = "#555555"; // Darker border for dark bg
+    ctx.strokeStyle = "#555555";
     ctx.lineWidth = 0.1;
     ctx.strokeRect(
       0.05,
@@ -226,7 +207,6 @@ export class CardRenderer {
     return texture;
   }
 
-  // Helper to encapsulate drawing logic for reuse
   private static drawImageOntoCanvas(
     ctx: CanvasRenderingContext2D,
     img: HTMLImageElement,

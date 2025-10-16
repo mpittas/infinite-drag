@@ -1,12 +1,10 @@
-// import * as THREE from "three"; // Removed as it's not used
-
 export const VignetteShader = {
   uniforms: {
-    tDiffuse: { value: null }, // The texture from the previous pass
-    vignetteStart: { value: 0.8 }, // Start for pow(dist, 2.0) (effective dist ~0.5)
-    vignetteFalloff: { value: 0.8 }, // Falloff for pow(dist, 2.0) (effective end dist ~0.707)
-    vignetteStrength: { value: 7.25 }, // Max darkness (0.0 to 1.0)
-    aspectRatio: { value: 0.0 }, // To make the vignette circular
+    tDiffuse: { value: null },
+    vignetteStart: { value: 0.8 },
+    vignetteFalloff: { value: 0.8 },
+    vignetteStrength: { value: 7.25 },
+    aspectRatio: { value: 0.0 },
   },
 
   vertexShader: /* glsl */ `
@@ -27,14 +25,12 @@ export const VignetteShader = {
 
     void main() {
       vec4 texel = texture2D(tDiffuse, vUv);
-      vec2 uv = (vUv - vec2(0.5)) * vec2(aspectRatio, 1.75); // Correct for aspect ratio
-      float dist = length(uv); // Distance from center
-      float poweredDist = pow(dist, 1.6); // Emphasize corners by using distance squared
+      vec2 uv = (vUv - vec2(0.5)) * vec2(aspectRatio, 1.75);
+      float dist = length(uv);
+      float poweredDist = pow(dist, 1.6);
 
-      // Calculate vignette intensity based on poweredDist
       float intensity = smoothstep(vignetteStart, vignetteStart + vignetteFalloff, poweredDist);
       
-      // Apply vignette by reducing brightness
       texel.rgb *= (1.0 - intensity * vignetteStrength);
       
       gl_FragColor = texel;
